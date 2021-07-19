@@ -96,7 +96,7 @@ class Ally(Flag):
     names = sorted(ally.name for ally in self)
     if len(names) == 2:
       return ' and '.join(names)
-    return ', '.join(names[:-1]) + ', and ' + names[-1]
+    return f'{", ".join(names[:-1])}, and {names[-1]}'
 
 
 #
@@ -395,7 +395,7 @@ class Decoder:
       if ordinal == 0:
         break
       if ordinal > len(Ally):
-        raise ValueError('Invalid squad encoding: ' + hex(ordinal))
+        raise ValueError(f'Invalid squad encoding: {hex(ordinal)}')
       squad |= Ally(1 << (ordinal - 1))
     return squad
 
@@ -417,16 +417,16 @@ def decode_outcome(encoded: int, *, full: bool = False) -> str:
   crew = decoder.decode_bool()
 
   if full:
-    output  = 'Survived: ({}) {}\n'.format(len(spared), spared)
-    output += 'Dead:     ({}) {}\n'.format(len(dead), dead)
+    output  = f'Survived: ({len(spared)}) {spared}\n'
+    output += f'Dead:     ({len(dead)}) {dead}\n'
     if loyalty == spared & LOYALTY_MASK:
       output += 'Loyal:    everyone\n'
     else:
-      output += 'Loyal:    {}\n'.format(loyalty)
+      output += f'Loyal:    {loyalty}\n'
     return output + ('Crew:     Survived' if crew else 'Crew:     Dead')
   
-  output = '{} survived; {} dead; '.format(len(spared), len(dead))
-  return output + 'crew {}.'.format('spared' if crew else 'dead')
+  output = f'{len(spared)} survived; {len(dead)} dead; '
+  return output + f'crew {"spared" if crew else "dead"}.'
 
 def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   decoder = Decoder(pair[1][1])
@@ -455,8 +455,7 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
       'Cyclonic Shields': upgraded_shield,
       'Thanix Cannon': upgraded_weapon
     }
-    upgraded = [k for k, v in upgrade_map.items() if v]
-    output += 'Upgrade: {}\n'.format(', '.join(upgraded))
+    output += f'Upgrade: {", ".join(k for k, v in upgrade_map.items() if v)}\n'
 
   # Recruitment is decoded from the outcome.
   decoder = Decoder(pair[0])
@@ -468,30 +467,30 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   elif not loyalty:
     output += 'Do no loyalty missions.\n'
   else:
-    output += 'Loyalty Missions: {}\n'.format(loyalty)
+    output += f'Loyalty Missions: {loyalty}\n'
   
   if not upgraded_shield:
     output += 'For the cargo bay squad, '
     cbs_take = reduce(or_, cbs_picks[:-1] if cbs_invert else cbs_picks, NOBODY)
     cbs_leave = cbs_picks[-1] if cbs_invert else NOBODY
     if cbs_take:
-      output += 'pick {}'.format(cbs_take)
+      output += f'pick {cbs_take}'
       if cbs_leave:
         output += ' and '
     if cbs_leave:
-      output += 'make sure to leave {} behind'.format(cbs_leave.name)
+      output += f'make sure to leave {cbs_leave} behind'
     output += '.\n'
   
-  output += 'Choose {} as the tech specialist'.format(tech.name)
+  output += f'Choose {tech} as the tech specialist'
   if leader1:
-    output += ' and {} as the first leader.\n'.format(leader1.name)
+    output += f' and {leader1} as the first leader.\n'
   else:
     output += '. The first leader does not matter.\n'
 
-  output += 'Choose {} as the biotic specialist '.format(biotic.name)
-  output += 'and {} as the second leader.\n'.format(leader2.name)
+  output += f'Choose {biotic} as the biotic specialist '
+  output += f'and {leader2} as the second leader.\n'
   if escort:
-    output += 'Send {} to escort the crew.\n'.format(escort.name)
+    output += f'Send {escort} to escort the crew.\n'
   else:
     output += 'Do not send anyone to escort the crew.\n'
   if tlw_unpicks:
@@ -500,14 +499,14 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
     tlw_leave = \
       reduce(or_, tlw_unpicks[:-1] if tlw_invert else tlw_unpicks, NOBODY)
     if tlw_take:
-      output += 'pick {}'.format(tlw_take.name)
+      output += f'pick {tlw_take}'
       if tlw_leave:
         output += ' and '
     if tlw_leave:
-      output += 'make sure to leave {} behind'.format(tlw_leave)
+      output += f'make sure to leave {tlw_leave} behind'
     output += '.\n'
 
-  output += 'Pick {} for your final squad.\n'.format(final_squad)
+  output += f'Pick {final_squad} for your final squad.\n'
   return output
 
 
@@ -561,7 +560,7 @@ class DecisionTree:
     """Computes the death toll for the allies who "hold the line"."""
     team_size = len(htl_team)
     if team_size < 1:
-      raise ValueError("Zero hold-the-line allies")
+      raise ValueError('Zero hold-the-line allies')
     # Compute the average defense score.
     score = 0.
     for ally in htl_team:
