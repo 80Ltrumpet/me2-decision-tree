@@ -423,7 +423,7 @@ def decode_outcome(encoded: int, *, full: bool = False) -> str:
       output += 'Loyal:    everyone\n'
     else:
       output += 'Loyal:    {}\n'.format(loyalty)
-    return output + 'Crew:     Survived' if crew else 'Crew:     Dead'
+    return output + ('Crew:     Survived' if crew else 'Crew:     Dead')
   
   output = '{} survived; {} dead; '.format(len(spared), len(dead))
   return output + 'crew {}.'.format('spared' if crew else 'dead')
