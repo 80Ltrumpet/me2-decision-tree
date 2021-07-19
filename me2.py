@@ -6,14 +6,25 @@ from itertools import combinations
 from operator import or_
 from pickle import Pickler, Unpickler
 from signal import SIGINT, signal
-from typing import Any, Callable, Generator, Iterable, Optional, Union
+from typing import Any, Callable, Generator, TypeVar
+
+# Used for generic type annotations.
+T = TypeVar('T')
 
 #
 # Bitwise Utilities
 #
 
+def bit_masks(x: int) -> Generator[int, None, None]:
+  """Generates single-bit masks for bits that are set in x."""
+  mask = 1
+  while mask <= x:
+    if mask & x:
+      yield mask
+    mask <<= 1
+
 def bit_positions(x: int) -> Generator[int, None, None]:
-  """Generates a sequence of bit positions that are set in x."""
+  """Generates zero-indexed positions for bits that are set in x."""
   bit = 0
   while (mask := 1 << bit) <= x:
     if mask & x:
@@ -24,9 +35,9 @@ def ffs(x: int) -> int:
   """Finds the position of the first set bit in x or -1 if no bits are set."""
   return next(bit_positions(x), -1)
 
-def ffs_value(x: int) -> int:
+def lsb(x: int) -> int:
   """Returns the value of the first set bit in x or 0 if no bits are set."""
-  return 1 << ffs_pos if (ffs_pos := ffs(x)) != -1 else 0
+  return next(bit_masks(x), 0)
 
 
 #
@@ -54,6 +65,14 @@ class Ally(Flag):
   # Place Morinth at the end for optimization.
   Morinth = auto()
 
+  def lt(self) -> Ally:
+    """Returns a compound Ally representing all allies "less than" this one.
+    
+    This is particularly useful for reducing restart iterations, even for
+    combinations, since they are guaranteed to be in sorted order.
+    """
+    return Ally(lsb(self.value) - 1) if self else Ally(0)
+
   #
   # Useful Overrides
   #
@@ -65,11 +84,7 @@ class Ally(Flag):
 
   def __iter__(self) -> Generator[Ally, None, None]:
     """Generates single Ally objects from this potentially compound Ally."""
-    mask = 1
-    while mask <= self.value:
-      if mask & self.value:
-        yield Ally(mask)
-      mask <<= 1
+    return (Ally(mask) for mask in bit_masks(self.value))
 
   def __str__(self) -> str:
     if self.name:
@@ -96,8 +111,7 @@ NOBODY = Ally(0)
 EVERYONE = Ally((1 << len(Ally)) - 1)
 
 # These allies are required to complete the game.
-REQUIRED = Ally.Garrus | Ally.Jack | Ally.Jacob | \
-  Ally.Miranda | Ally.Mordin
+REQUIRED = Ally.Garrus | Ally.Jack | Ally.Jacob | Ally.Miranda | Ally.Mordin
 
 # To finish the game, at least three other allies must be recruited. Morinth
 # is a special case because she can only be recruited by replacing Samara, who
@@ -221,7 +235,7 @@ class Team:
     """Constructs a valid initial state of the team before any decisions."""
     self.active = REQUIRED
     self.dead = NOBODY
-    self.survived = NOBODY
+    self.spared = NOBODY
   
   def kill(self, ally: Ally) -> Team:
     """Marks the given ally as dead."""
@@ -230,9 +244,9 @@ class Team:
     return self
 
   def spare(self, ally: Ally) -> Team:
-    """Marks the given ally as survived."""
+    """Marks the given ally as spared."""
     self.active &= ~ally
-    self.survived |= ally
+    self.spared |= ally
     return self
 
   def recruit(self, ally: Ally) -> Team:
@@ -371,33 +385,28 @@ class Decoder:
     return invert_last, picks
 
 
-#
-# Deocoders
-#
-
 def decode_outcome(encoded: int, *, full: bool = False) -> str:
   decoder = Decoder(encoded)
-  survived = decoder.decode_ally()
+  spared = decoder.decode_ally()
   dead = decoder.decode_ally()
   loyalty = decoder.decode_ally()
   crew = decoder.decode_bool()
 
-  everyone = survived | dead
+  everyone = spared | dead
 
   if full:
-    survived_dead = 'Survived: ({}) {}\nDead:     ({}) {}\n'.format( \
-      len(survived), survived, len(dead), dead)
+    output  = 'Survived: ({}) {}\n'.format(len(spared), spared)
+    output += 'Dead:     ({}) {}\n'.format(len(dead), dead)
     if loyalty == everyone:
-      loyalty_str = 'Loyal:    everyone\n'
+      output += 'Loyal:    everyone\n'
     elif len(loyalty) < len(Ally) >> 1:
-      loyalty_str = 'Loyal:    {}\n'.format(loyalty)
+      output += 'Loyal:    {}\n'.format(loyalty)
     else:
-      loyalty_str = 'Disloyal: {}\n'.format(~loyalty & everyone)
-    crew_str = 'Crew:     Survived' if crew else 'Crew:     Dead'
-    return survived_dead + loyalty_str + crew_str
+      output += 'Disloyal: {}\n'.format(~loyalty & everyone)
+    return output + 'Crew:     Survived' if crew else 'Crew:     Dead'
   
-  return '{} survived; {} dead; crew {}.'.format(len(survived), len(dead), \
-    'survived' if crew else 'dead')
+  output = '{} survived; {} dead; '.format(len(spared), len(dead))
+  return output + 'crew {}.'.format('spared' if crew else 'dead')
 
 def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   decoder = Decoder(pair[1][1])
@@ -425,8 +434,8 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
       'Cyclonic Shields': upgraded_shield,
       'Thanix Cannon': upgraded_weapon
     }
-    output += 'Upgrade: {}\n'.format( \
-      ', '.join(k for k, v in upgrade_map.items() if v))
+    upgraded = [k for k, v in upgrade_map.items() if v]
+    output += 'Upgrade: {}\n'.format(', '.join(upgraded))
 
   # Loyalty and recruitment are decoded from the outcome.
   decoder = Decoder(pair[0])
@@ -459,8 +468,8 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   else:
     output += '. The first leader does not matter.\n'
 
-  output += 'Choose {} as the biotic specialist and {} as the second ' \
-    'leader.\n'.format(biotic.name, leader2.name)
+  output += 'Choose {} as the biotic specialist '.format(biotic.name)
+  output += 'and {} as the second leader.\n'.format(leader2.name)
   if escort:
     output += 'Send {} to escort the crew.\n'.format(escort.name)
   else:
@@ -555,10 +564,10 @@ class DecisionTree:
     resulting in that outcome and an encoding of the last such traversal."""
     # The encoded outcome is 40 bits wide.
     encoder = Encoder()
-    encoder.encode_ally(team.survived)
+    encoder.encode_ally(team.spared)
     encoder.encode_ally(team.dead)
     # Only record the loyalty of recruited allies.
-    encoder.encode_ally((team.survived | team.dead) & self.loyalty)
+    encoder.encode_ally((team.spared | team.dead) & self.loyalty)
     encoder.encode_bool(self.get_memo(MemoKey.CREW, False))
     outcome = int(encoder)
 
@@ -592,15 +601,15 @@ class DecisionTree:
   # following methods, their names are stored as the keys for optimal pickling.
   #
 
-  def get_memo(self, key: MemoKey, default: Any) -> Any:
+  def get_memo(self, key: MemoKey, default: T) -> T:
     """Gets the value of the requested memo key."""
     # Ally values are stored in the memo as integers, so this check makes their
     # retrieval less annoying and error-prone.
     if isinstance(default, Ally):
-      return Ally(self.memo.get(key.name, default.value))
+      return Ally(self.memo.get(key.name, default.value))  # type: ignore
     return self.memo.get(key.name, default)
 
-  def read_memo(self, key: MemoKey, default: Any) -> Any:
+  def read_memo(self, key: MemoKey, default: T) -> T:
     """Gets the value of the requested memo key on the first call.
     
     On subsequent calls or if the key is not in the memo, returns default.
@@ -652,20 +661,18 @@ class DecisionTree:
 
   def generate(self) -> None:
     """Generates decision tree outcomes."""
+    # Pressing Ctrl-C gracefully pauses the operation.
+    def handle_sigint(*_):
+      self.pausing = True
+    sigint_handler = signal(SIGINT, handle_sigint)
     try:
       self.choose_recruitment()
     except DecisionTreePauseException:
       pass
     finally:
       self.save()
-  
-  def pause(self) -> None:
-    self.pausing = True
-
-  def install_sigint_handler(self) -> None:
-    def handle_sigint(*_):
-      self.pause()
-    signal(SIGINT, handle_sigint)
+    # Restore the original SIGINT handler.
+    signal(SIGINT, sigint_handler)
 
   #
   # Decision Methods
@@ -680,14 +687,14 @@ class DecisionTree:
       return
     for n in range(n_start, len(OPTIONAL) + 1):
       self.write_memo(MemoKey.N_OPT, n)
-      self.choose_recruits(combinations(OPTIONAL, n))
+      self.choose_recruits(n)
     # This signals that all outcomes have been generated.
     self.write_memo(MemoKey.N_OPT, 0)
 
-  def choose_recruits(self, combos: combinations[tuple[Ally, ...]]) -> None:
+  def choose_recruits(self, n: int) -> None:
     # Iterate through all possible combinations of optional recruitment.
     memo_recruits = self.read_memo(MemoKey.RECRUITS, NOBODY)
-    for recruits_tuple in combos:
+    for recruits_tuple in combinations(OPTIONAL & ~memo_recruits.lt(), n):
       recruits: Ally = reduce(or_, recruits_tuple)
       if memo_recruits and recruits != memo_recruits:
         continue
@@ -704,7 +711,7 @@ class DecisionTree:
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
       if self.loyalty & OPTIONAL & ~team.active:
-        loyalty += ffs_value(loyalty) << 1
+        loyalty += lsb(loyalty) << 1
         continue
       self.write_memo(MemoKey.LOYALTY, loyalty)
       self.choose_morinth(team)
@@ -780,11 +787,8 @@ class DecisionTree:
   
   def choose_tech(self, team: Team) -> None:
     # Iterate through all selectable teammates for the tech specialist.
-    memo_tech = self.read_memo(MemoKey.TECH, NOBODY)
-    for tech in team.active:
-      if memo_tech and tech != memo_tech:
-        continue
-      memo_tech = NOBODY
+    cur_tech = self.read_memo(MemoKey.TECH, NOBODY)
+    for tech in team.active & ~cur_tech.lt():
       self.write_memo(MemoKey.TECH, tech)
       # If the tech specialist is not loyal or ideal, they will die, regardless
       # of the leader selection.
@@ -796,11 +800,9 @@ class DecisionTree:
     self.clear_memo(MemoKey.TECH)
 
   def choose_first_leader(self, team: Team, tech: Ally) -> None:
-    memo_leader = self.read_memo(MemoKey.LEADER1, NOBODY)
-    for leader in team.active & ~tech:
-      if memo_leader and leader != memo_leader:
-        continue
-      memo_leader = NOBODY
+    # Iterate through all selectable teammates for the first fireteam leader.
+    cur_leader = self.read_memo(MemoKey.LEADER1, NOBODY)
+    for leader in team.active & ~cur_leader.lt() & ~tech:
       self.write_memo(MemoKey.LEADER1, leader)
       # If the first fireteam leader is not loyal or ideal, the tech specialist
       # dies. Otherwise, no one dies.
@@ -811,21 +813,17 @@ class DecisionTree:
     self.clear_memo(MemoKey.LEADER1)
 
   def choose_biotic(self, team: Team) -> None:
-    memo_biotic = self.read_memo(MemoKey.BIOTIC, NOBODY)
-    for biotic in team.active & BIOTICS:
-      if memo_biotic and biotic != memo_biotic:
-        continue
-      memo_biotic = NOBODY
+    # Iterate through all selectable teammates for the biotic specialist.
+    cur_biotic = self.read_memo(MemoKey.BIOTIC, NOBODY)
+    for biotic in team.active & ~cur_biotic.lt() & BIOTICS:
       self.write_memo(MemoKey.BIOTIC, biotic)
       self.choose_second_leader(team, biotic)
     self.clear_memo(MemoKey.BIOTIC)
 
   def choose_second_leader(self, team: Team, biotic: Ally) -> None:
-    memo_leader = self.read_memo(MemoKey.LEADER2, NOBODY)
-    for leader in team.active & ~biotic:
-      if memo_leader and leader != memo_leader:
-        continue
-      memo_leader = NOBODY
+    # Iterate through all selectable teammates for the second fireteam leader.
+    cur_leader = self.read_memo(MemoKey.LEADER2, NOBODY)
+    for leader in team.active & ~cur_leader.lt() & ~biotic:
       self.write_memo(MemoKey.LEADER2, leader)
       self.choose_save_the_crew(team, biotic, leader)
     self.clear_memo(MemoKey.LEADER2)
@@ -852,12 +850,8 @@ class DecisionTree:
   def choose_escort(self, team: Team, biotic: Ally, leader: Ally) -> None:
     # If an escort is selected, they will survive if they are loyal. Otherwise,
     # they will die.
-    memo_escort = self.read_memo(MemoKey.ESCORT, NOBODY)
-    escort_pool = team.active & ESCORTS & ~(biotic | leader)
-    for escort in escort_pool:
-      if memo_escort and escort != memo_escort:
-        continue
-      memo_escort = NOBODY
+    cur_escort = self.read_memo(MemoKey.ESCORT, NOBODY)
+    for escort in team.active & ~cur_escort.lt() & ESCORTS & ~(biotic | leader):
       self.write_memo(MemoKey.ESCORT, escort)
       s = copy(team)
       s.spare(escort) if self.loyal(escort) else s.kill(escort)
@@ -873,8 +867,6 @@ class DecisionTree:
     # through your squad selection if your team is large enough at this point.
     memo_avoid = self.read_memo(MemoKey.WALK_UNPICK, 0)
     pool = team.active & ~(biotic | leader)
-    # Unlike the cargo bay, your active team size can affect your ability to
-    # save an ally.
     unpicks: list[Ally] = []
     for unpick in range(max(1, min(len(pool) - 1, 3))):
       victim = self.get_victim(pool, DP_THE_LONG_WALK)
@@ -900,7 +892,7 @@ class DecisionTree:
       team = copy(team).kill(leader)
     # Iterate through all possible final squads.
     memo_squad = self.read_memo(MemoKey.FINAL_SQUAD, NOBODY)
-    for squad_tuple in combinations(team.active, 2):
+    for squad_tuple in combinations(team.active & ~memo_squad.lt(), 2):
       squad: Ally = reduce(or_, squad_tuple)
       if memo_squad and squad != memo_squad:
         continue
@@ -924,10 +916,8 @@ class DecisionTree:
     self.clear_memo(MemoKey.FINAL_SQUAD)
 
 
-# TODO: Progress indication?
 if __name__ == '__main__':
   dt = DecisionTree()
-  dt.install_sigint_handler()
   dt.generate()
 
   # Print the number of outcomes generated so far.
