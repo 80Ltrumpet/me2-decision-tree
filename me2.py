@@ -113,10 +113,16 @@ EVERYONE = Ally((1 << len(Ally)) - 1)
 # These allies are required to complete the game.
 REQUIRED = Ally.Garrus | Ally.Jack | Ally.Jacob | Ally.Miranda | Ally.Mordin
 
-# To finish the game, at least three other allies must be recruited. Morinth
-# is a special case because she can only be recruited by replacing Samara, who
-# is technically optional.
-OPTIONAL = EVERYONE & ~REQUIRED & ~Ally.Morinth
+# To finish the game, at least three other allies must be recruited.
+OPTIONAL = EVERYONE & ~REQUIRED
+
+# Morinth is a special case because she can only be recruited by replacing
+# Samara, who is technically optional.
+RECRUITABLE = OPTIONAL & ~Ally.Morinth
+
+# Similarly, when recruited, Morinth is always loyal, so her loyalty bit is
+# technically redundant.
+LOYALTY_MASK = ~Ally.Morinth
 
 #
 # Special Roles
@@ -323,6 +329,16 @@ class Encoder:
     """
     self.encoded |= allies.value << self.shift(len(Ally))
 
+  def encode_loyal_ally(self, allies: Ally) -> None:
+    """Encodes a compound Ally value masked with LOYALTY_MASK (12 bits)."""
+    loyal = allies & LOYALTY_MASK
+    self.encoded |= loyal.value << self.shift(len(LOYALTY_MASK))
+
+  def encode_optional_ally(self, allies: Ally) -> None:
+    """Encodes a compound Ally value masked with OPTIONAL (7 bits)."""
+    optional = (allies & OPTIONAL).value >> ffs(OPTIONAL.value)
+    self.encoded |= optional << self.shift(len(OPTIONAL))
+
   def encode_squad(self, squad: Ally, size: int = 1) -> None:
     """Encodes size 1-indexed bit positions of an Ally as 4-bit values starting
     from the first set bit."""
@@ -363,6 +379,14 @@ class Decoder:
 
   def decode_ally(self) -> Ally:
     return Ally((self.encoded >> self.shift(len(Ally))) & EVERYONE.value)
+  
+  def decode_loyal_ally(self) -> Ally:
+    loyal = self.encoded >> self.shift(len(LOYALTY_MASK))
+    return Ally(loyal & LOYALTY_MASK.value)
+
+  def decode_optional_ally(self) -> Ally:
+    optional = self.encoded >> self.shift(len(OPTIONAL))
+    return Ally((optional << ffs(OPTIONAL.value)) & EVERYONE.value)
 
   def decode_squad(self, size: int = 1) -> Ally:
     squad = NOBODY
@@ -388,21 +412,17 @@ class Decoder:
 def decode_outcome(encoded: int, *, full: bool = False) -> str:
   decoder = Decoder(encoded)
   spared = decoder.decode_ally()
-  dead = decoder.decode_ally()
-  loyalty = decoder.decode_ally()
+  dead = decoder.decode_optional_ally() | (REQUIRED & ~spared)
+  loyalty = decoder.decode_loyal_ally()
   crew = decoder.decode_bool()
-
-  everyone = spared | dead
 
   if full:
     output  = 'Survived: ({}) {}\n'.format(len(spared), spared)
     output += 'Dead:     ({}) {}\n'.format(len(dead), dead)
-    if loyalty == everyone:
+    if loyalty == spared & LOYALTY_MASK:
       output += 'Loyal:    everyone\n'
-    elif len(loyalty) < len(Ally) >> 1:
-      output += 'Loyal:    {}\n'.format(loyalty)
     else:
-      output += 'Disloyal: {}\n'.format(~loyalty & everyone)
+      output += 'Loyal:    {}\n'.format(loyalty)
     return output + 'Crew:     Survived' if crew else 'Crew:     Dead'
   
   output = '{} survived; {} dead; '.format(len(spared), len(dead))
@@ -410,6 +430,7 @@ def decode_outcome(encoded: int, *, full: bool = False) -> str:
 
 def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   decoder = Decoder(pair[1][1])
+  loyalty = decoder.decode_loyal_ally()
   upgraded_armor = decoder.decode_bool()
   upgraded_shield = decoder.decode_bool()
   upgraded_weapon = decoder.decode_bool()
@@ -437,13 +458,12 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
     upgraded = [k for k, v in upgrade_map.items() if v]
     output += 'Upgrade: {}\n'.format(', '.join(upgraded))
 
-  # Loyalty and recruitment are decoded from the outcome.
+  # Recruitment is decoded from the outcome.
   decoder = Decoder(pair[0])
-  everyone = decoder.decode_ally() | decoder.decode_ally()
-  loyalty = decoder.decode_ally()
+  everyone = decoder.decode_ally() | decoder.decode_optional_ally() | REQUIRED
 
   output += 'Recruit: {}\n'.format(everyone & OPTIONAL)
-  if loyalty == everyone:
+  if loyalty == everyone & LOYALTY_MASK:
     output += 'Do all loyalty missions.\n'
   elif not loyalty:
     output += 'Do no loyalty missions.\n'
@@ -562,17 +582,20 @@ class DecisionTree:
     """Encodes the outcome based on the final state of the team and adds it to
     the outcome dictionary with a 2-tuple containing the number of traversals
     resulting in that outcome and an encoding of the last such traversal."""
-    # The encoded outcome is 40 bits wide.
+    # The encoded outcome is 33 bits wide.
     encoder = Encoder()
     encoder.encode_ally(team.spared)
-    encoder.encode_ally(team.dead)
-    # Only record the loyalty of recruited allies.
-    encoder.encode_ally((team.spared | team.dead) & self.loyalty)
+    # Only encode deaths of optional allies. Required allies that are not spared
+    # are dead.
+    encoder.encode_optional_ally(team.dead)
+    # The loyalty of dead allies does not affect the uniqueness of the outcome.
+    encoder.encode_loyal_ally(self.loyalty & team.spared)
     encoder.encode_bool(self.get_memo(MemoKey.CREW, False))
     outcome = int(encoder)
 
-    # The bit-width of the encoded traversal is variable.
+    # The bit-width of the encoded traversal is variable. (min, max) = (48, 61)
     encoder = Encoder()
+    encoder.encode_loyal_ally(self.loyalty & (team.spared | team.dead))
     encoder.encode_bool(self.get_memo(MemoKey.ARMOR, True))
     encoder.encode_bool((shield := self.get_memo(MemoKey.SHIELD, True)))
     encoder.encode_bool(self.get_memo(MemoKey.WEAPON, True))
@@ -680,12 +703,10 @@ class DecisionTree:
 
   def choose_recruitment(self) -> None:
     # At least three optional allies must be recruited to finish the game.
-    # NOTE: Morinth is explicitly excluded from the OPTIONAL set to facilitate
-    # necessary special-case handling.
     n_start = self.read_memo(MemoKey.N_OPT, 3)
     if n_start == 0:
       return
-    for n in range(n_start, len(OPTIONAL) + 1):
+    for n in range(n_start, len(RECRUITABLE) + 1):
       self.write_memo(MemoKey.N_OPT, n)
       self.choose_recruits(n)
     # This signals that all outcomes have been generated.
@@ -694,7 +715,7 @@ class DecisionTree:
   def choose_recruits(self, n: int) -> None:
     # Iterate through all possible combinations of optional recruitment.
     memo_recruits = self.read_memo(MemoKey.RECRUITS, NOBODY)
-    for recruits_tuple in combinations(OPTIONAL & ~memo_recruits.lt(), n):
+    for recruits_tuple in combinations(RECRUITABLE & ~memo_recruits.lt(), n):
       recruits: Ally = reduce(or_, recruits_tuple)
       if memo_recruits and recruits != memo_recruits:
         continue
@@ -710,7 +731,7 @@ class DecisionTree:
       self.loyalty = Ally(loyalty)
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
-      if self.loyalty & OPTIONAL & ~team.active:
+      if self.loyalty & RECRUITABLE & ~team.active:
         loyalty += lsb(loyalty)
         continue
       self.write_memo(MemoKey.LOYALTY, loyalty)
@@ -724,7 +745,7 @@ class DecisionTree:
       self.choose_armor_upgrade(team)
     # If Samara was recruited and loyal, re-run with Morinth instead.
     # Recruiting Morinth always kills Samara.
-    if team.active & Ally.Samara and self.loyal(Ally.Samara):
+    if Ally.Samara & team.active and self.loyal(Ally.Samara):
       self.write_memo(MemoKey.MORINTH, True)
       self.choose_armor_upgrade(copy(team).recruit(Ally.Morinth))
     self.clear_memo(MemoKey.MORINTH)
