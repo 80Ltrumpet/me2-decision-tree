@@ -711,7 +711,7 @@ class DecisionTree:
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
       if self.loyalty & OPTIONAL & ~team.active:
-        loyalty += lsb(loyalty) << 1
+        loyalty += lsb(loyalty)
         continue
       self.write_memo(MemoKey.LOYALTY, loyalty)
       self.choose_morinth(team)
