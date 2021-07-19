@@ -71,6 +71,18 @@ class Ally(Flag):
         yield Ally(mask)
       mask <<= 1
 
+  def __str__(self) -> str:
+    if self.name:
+      return self.name
+    if self.value == 0:
+      return 'nobody'
+    if self.value == (1 << len(Ally)) - 1:
+      return 'everyone'
+    names = sorted(ally.name for ally in self)
+    if len(names) == 2:
+      return ' and '.join(names)
+    return ', '.join(names[:-1]) + ', and ' + names[-1]
+
 
 #
 # Groups and Aliases
@@ -122,20 +134,6 @@ ESCORTS = EVERYONE & ~Ally.Miranda
 # If Miranda is selected to lead the second fireteam, she will not die even if
 # she is not loyal.
 IMMORTAL_LEADERS = Ally.Miranda
-
-
-#
-# Ally Stringification
-#
-
-def ally_str(ally: Ally) -> str:
-  if ally == NOBODY:
-    return 'none'
-  if ally == EVERYONE:
-    return 'everyone'
-  if len(ally) == 2:
-    return ' and '.join(a.name for a in ally)
-  return ', '.join(a.name for a in ally)
 
 
 #
@@ -388,13 +386,13 @@ def decode_outcome(encoded: int, *, full: bool = False) -> str:
 
   if full:
     survived_dead = 'Survived: ({}) {}\nDead:     ({}) {}\n'.format( \
-      len(survived), ally_str(survived), len(dead), ally_str(dead))
+      len(survived), survived, len(dead), dead)
     if loyalty == everyone:
       loyalty_str = 'Loyal:    everyone\n'
     elif len(loyalty) < len(Ally) >> 1:
-      loyalty_str = 'Loyal:    {}\n'.format(ally_str(loyalty))
+      loyalty_str = 'Loyal:    {}\n'.format(loyalty)
     else:
-      loyalty_str = 'Disloyal: {}\n'.format(ally_str(~loyalty & everyone))
+      loyalty_str = 'Disloyal: {}\n'.format(~loyalty & everyone)
     crew_str = 'Crew:     Survived' if crew else 'Crew:     Dead'
     return survived_dead + loyalty_str + crew_str
   
@@ -435,20 +433,20 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   everyone = decoder.decode_ally() | decoder.decode_ally()
   loyalty = decoder.decode_ally()
 
-  output += 'Recruit: {}\n'.format(ally_str(everyone & OPTIONAL))
+  output += 'Recruit: {}\n'.format(everyone & OPTIONAL)
   if loyalty == everyone:
     output += 'Do all loyalty missions.\n'
   elif not loyalty:
     output += 'Do no loyalty missions.\n'
   else:
-    output += 'Loyalty Missions: {}\n'.format(ally_str(loyalty))
+    output += 'Loyalty Missions: {}\n'.format(loyalty)
   
   if not upgraded_shield:
     output += 'For the cargo bay squad, '
     cbs_take = reduce(or_, cbs_picks[:-1] if cbs_invert else cbs_picks, NOBODY)
     cbs_leave = cbs_picks[-1] if cbs_invert else NOBODY
     if cbs_take:
-      output += 'pick {}'.format(ally_str(cbs_take))
+      output += 'pick {}'.format(cbs_take)
       if cbs_leave:
         output += ' and '
     if cbs_leave:
@@ -470,16 +468,17 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   if tlw_unpicks:
     output += 'For the squad in the biotic shield, '
     tlw_take = tlw_unpicks[-1] if tlw_invert else NOBODY
-    tlw_leave = reduce(or_, tlw_unpicks[:-1] if tlw_invert else tlw_unpicks, NOBODY)
+    tlw_leave = \
+      reduce(or_, tlw_unpicks[:-1] if tlw_invert else tlw_unpicks, NOBODY)
     if tlw_take:
       output += 'pick {}'.format(tlw_take.name)
       if tlw_leave:
         output += ' and '
     if tlw_leave:
-      output += 'make sure to leave {} behind'.format(ally_str(tlw_leave))
+      output += 'make sure to leave {} behind'.format(tlw_leave)
     output += '.\n'
 
-  output += 'Pick {} for your final squad.\n'.format(ally_str(final_squad))
+  output += 'Pick {} for your final squad.\n'.format(final_squad)
   return output
 
 
