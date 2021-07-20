@@ -335,7 +335,7 @@ class Encoder:
     self.encoded |= loyal.value << self.shift(len(LOYALTY_MASK))
 
   def encode_optional_ally(self, allies: Ally) -> None:
-    """Encodes a compound Ally value masked with OPTIONAL (7 bits)."""
+    """Encodes a compound Ally value masked with OPTIONAL (8 bits)."""
     optional = (allies & OPTIONAL).value >> ffs(OPTIONAL.value)
     self.encoded |= optional << self.shift(len(OPTIONAL))
 
@@ -586,7 +586,7 @@ class DecisionTree:
     """Encodes the outcome based on the final state of the team and adds it to
     the outcome dictionary with a 2-tuple containing the number of traversals
     resulting in that outcome and an encoding of the last such traversal."""
-    # The encoded outcome is 33 bits wide.
+    # The encoded outcome is 34 bits wide.
     encoder = Encoder()
     encoder.encode_ally(team.spared)
     # Only encode deaths of optional allies. Required allies that are not spared
@@ -895,23 +895,22 @@ class DecisionTree:
     # If your team is too small to merit a meaningful squad selection, there is
     # only one possible outcome.
     pool = team.active & ~(biotic | leader)
-    victim = self.get_victim(pool, DP_THE_LONG_WALK)
     if len(pool) < 3:
+      victim = self.get_victim(pool, DP_THE_LONG_WALK)
       return self.choose_final_squad(copy(team).kill(victim), leader)
     # Otherwise, you may be able to affect who the victim is through your squad
     # selection.
     memo_unpick = self.read_memo(MemoKey.WALK_UNPICK, 0)
-    unpicks = [victim]
-    self.cache[CacheKey.LONG_WALK_UNPICKS] = unpicks
+    self.cache[CacheKey.LONG_WALK_UNPICKS] = (unpicks := [])
     for unpick in range(min(len(pool) - 1, 3)):
+      victim = self.get_victim(pool, DP_THE_LONG_WALK)
+      unpicks.append(victim)
       if unpick >= memo_unpick:
         self.write_memo(MemoKey.WALK_UNPICK, unpick)
         self.choose_final_squad(copy(team).kill(victim), leader)
       # *Not* selecting the prioritized victim(s) removes them from the victim
       # pool.
       pool &= ~victim
-      victim = self.get_victim(pool, DP_THE_LONG_WALK)
-      unpicks.append(victim)
     self.cache.pop(CacheKey.LONG_WALK_UNPICKS, None)
     self.clear_memo(MemoKey.WALK_UNPICK)
 
