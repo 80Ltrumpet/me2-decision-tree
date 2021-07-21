@@ -6,6 +6,7 @@ from itertools import combinations
 from operator import or_
 from pickle import Pickler, Unpickler
 from signal import SIGINT, signal
+from statistics import fmean
 from typing import Any, Callable, Generator, Optional, TypeVar
 
 # Used for generic type annotations.
@@ -14,30 +15,41 @@ T = TypeVar('T')
 #
 # Bitwise Utilities
 #
-
-def bit_masks(x: int) -> Generator[int, None, None]:
-  """Generates single-bit masks for bits that are set in x."""
-  mask = 1
-  while mask <= x:
-    if mask & x:
-      yield mask
-    mask <<= 1
+# Although ffs() could be implemented using bit_positions(), it is more
+# performant to avoid constructing generators when they are not absolutely
+# necessary. Measurements suggest this implementation is significantly faster
+# than reusing bit_positions() or using bin(x).rfind('1') with index math.
+#
 
 def bit_positions(x: int) -> Generator[int, None, None]:
   """Generates zero-indexed positions for bits that are set in x."""
   bit = 0
-  while (mask := 1 << bit) <= x:
+  mask = 1
+  while mask <= x:
     if mask & x:
       yield bit
     bit += 1
+    mask <<= 1
 
 def ffs(x: int) -> int:
   """Finds the position of the first set bit in x or -1 if no bits are set."""
-  return next(bit_positions(x), -1)
+  bit = 0
+  mask = 1
+  while mask <= x:
+    if mask & x:
+      return bit
+    bit += 1
+    mask <<= 1
+  return -1
 
 def lsb(x: int) -> int:
   """Returns the value of the first set bit in x or 0 if no bits are set."""
-  return next(bit_masks(x), 0)
+  mask = 1
+  while mask <= x:
+    if mask & x:
+      return mask
+    mask <<= 1
+  return 0
 
 
 #
@@ -47,14 +59,14 @@ def lsb(x: int) -> int:
 class Ally(Flag):
   """Enumeration of all allies in Mass Effect 2."""
 
-  # REQUIRED
+  # Required
   Garrus = auto()
   Jack = auto()
   Jacob = auto()
   Miranda = auto()
   Mordin = auto()
 
-  # OPTIONAL
+  # Optional
   Grunt = auto()
   Kasumi = auto()
   Legion = auto()
@@ -66,7 +78,7 @@ class Ally(Flag):
   Morinth = auto()
 
   def lt(self) -> Ally:
-    """Returns a compound Ally representing all allies "less than" this one.
+    """Returns an Ally representing all allies "less than" this Ally.
     
     This is particularly useful for reducing restart iterations, even for
     combinations, since they are guaranteed to be in sorted order.
@@ -78,15 +90,20 @@ class Ally(Flag):
   #
 
   def __len__(self) -> int:
-    """Counts the number of allies represented by this potentially compound
-    Ally."""
+    """Counts the number of allies represented by this Ally."""
+    # Surprisingly, this is faster than iterating over the bits.
     return bin(self.value).count('1')
 
   def __iter__(self) -> Generator[Ally, None, None]:
-    """Generates single Ally objects from this potentially compound Ally."""
-    return (Ally(mask) for mask in bit_masks(self.value))
+    """Generates Ally enumeration members from this Ally."""
+    mask = 1
+    while mask <= self.value:
+      if mask & self.value:
+        yield Ally(mask)
+      mask <<= 1
 
   def __str__(self) -> str:
+    """Converts this Ally into a human-readable string."""
     if self.name:
       return self.name
     if self.value == 0:
@@ -102,9 +119,8 @@ class Ally(Flag):
 #
 # Groups and Aliases
 #
-# Keeping these out of the definition of Ally prevents the interpreter from
-# trying to be clever when representing dynamic groupings of allies. It
-# tends to be more difficult to read and is heavily redundant.
+# Keeping these out of the definition of Ally ensures len(Ally) is equivalent
+# to the bit-width of Ally(...).value.
 #
 
 NOBODY = Ally(0)
@@ -123,10 +139,6 @@ RECRUITABLE = OPTIONAL & ~Ally.Morinth
 # Similarly, when recruited, Morinth is always loyal, so her loyalty bit is
 # technically redundant.
 LOYALTY_MASK = ~Ally.Morinth
-
-#
-# Special Roles
-#
 
 # If any of these are loyal and selected as the leader of the first fireteam,
 # the death of the selected tech specialist may be avoided (see IDEAL_TECHS).
@@ -161,9 +173,7 @@ IMMORTAL_LEADERS = Ally.Miranda
 #
 
 # The following lists indicate the order in which allies are selected for
-# death when certain conditions are met. If a disloyal ally on the list
-# meets the conditions, they are prioritized above loyal allies according
-# to the same order.
+# death when certain conditions are met.
 
 # The "Silaris Armor" upgrade was not purchased.
 DP_NO_ARMOR_UPGRADE = [Ally.Jack]
@@ -188,23 +198,43 @@ DP_THE_LONG_WALK = [
   Ally.Tali, Ally.Kasumi, Ally.Zaeed, Ally.Morinth
 ]
 
-# The average defense score is too low for the allies holding the line
-# during the final battle.
-DP_HOLD_THE_LINE = [
+# The average defense score is too low for the defending allies during the final
+# battle. Unlike the other death priority lists, non-loyal allies are
+# prioritized above loyal allies (see get_defense_victim()).
+DP_DEFENSE = [
   Ally.Mordin, Ally.Tali, Ally.Kasumi, Ally.Jack,
   Ally.Miranda, Ally.Jacob, Ally.Garrus, Ally.Samara,
   Ally.Morinth, Ally.Legion, Ally.Thane, Ally.Zaeed,
   Ally.Grunt
 ]
 
+def get_victim(team: Ally, priority: list[Ally]) -> Ally:
+  """Selects the teammate who should die based on the given priority."""
+  for ally in priority:
+    if ally & team:
+      return ally
+  # It should be impossible to encounter a situation where none of the teammates
+  # are in the priority list.
+  raise RuntimeError("No victim")
+
+def get_defense_victim(defense_team: Ally, loyal: Ally) -> Ally:
+  """Selects the defending teammate who should die."""
+  # If everyone is loyal, this is the same as get_victim().
+  if defense_team == defense_team & loyal:
+    return get_victim(defense_team, DP_DEFENSE)
+  for ally in DP_DEFENSE:
+    if ally & defense_team & ~loyal:
+      return ally
+  return get_victim(defense_team, DP_DEFENSE)
+
 
 #
-# Hold The Line: Scoring
+# Defense Scoring
 #
 
-# Loyal allies who "hold the line" in the final battle are assigned a
-# "defense score" according to their "innate defensiveness". If an ally
-# is disloyal, their score is decreased by 1.
+# Loyal allies who are left behind to defend during the final battle are
+# assigned defense scores according to their "innate defensiveness". If an ally
+# is disloyal, their score is decreased by 1 (see get_defense_toll()).
 DEFENSE_SCORE = {
   Ally.Garrus: 4,
   Ally.Grunt: 4,
@@ -221,10 +251,10 @@ DEFENSE_SCORE = {
   Ally.Morinth: 2
 }
 
-# Lookup table for the number of allies who will die "holding the line"
-# according to the average of their defense scores. If there are more than
-# five allies, apply the last formula in this list.
-HTL_TOLL_FORMULA: list[Callable[[float], int]] = [
+# Lookup table for the number of defending allies who will die according to the
+# mean of their defense scores. If there are more than five allies, apply the
+# last formula in this list.
+DEFENSE_TOLL_FORMULA: list[Callable[[float], int]] = [
   int,
   lambda x: 1 if x < 2 else 0,
   lambda x: 2 if x == 0 else 1 if x < 2 else 0,
@@ -232,6 +262,17 @@ HTL_TOLL_FORMULA: list[Callable[[float], int]] = [
   lambda x: 4 if x == 0 else 3 if x < 0.5 else 2 if x <= 1 else 1 if x < 2 else 0,
   lambda x: 3 if x < 0.5 else 2 if x < 1.5 else 1 if x < 2 else 0
 ]
+
+def get_defense_toll(defense_team: Ally, loyal: Ally) -> int:
+  """Computes the death toll for the defense team."""
+  team_size = len(defense_team)
+  if team_size == 0:
+    raise ValueError('Zero defending allies')
+  # Compute the average defense score. Disloyal allies' scores are reduced.
+  score = fmean(DEFENSE_SCORE[a] - bool(a & ~loyal) for a in defense_team)
+  if team_size < len(DEFENSE_TOLL_FORMULA):
+    return DEFENSE_TOLL_FORMULA[team_size](score)
+  return DEFENSE_TOLL_FORMULA[-1](score)
 
 
 class Team:
@@ -258,7 +299,7 @@ class Team:
   def recruit(self, ally: Ally) -> Team:
     """Adds the given ally to the team."""
     self.active |= ally
-    if ally & Ally.Morinth:
+    if Ally.Morinth & ally:
       self.kill(Ally.Samara)
     return self
 
@@ -307,57 +348,54 @@ class CacheKey(Enum):
 class Encoder:
   """Facilitates bit-packing various types in LSB-to_MSB order."""
   def __init__(self):
-    self.encoded = 0
+    self.result = 0
     self.index = 0
 
-  def __int__(self):
-    return self.encoded
-
   def shift(self, width: int) -> int:
+    """Returns the current bit index before incrementing by width."""
     shift = self.index
     self.index += width
     return shift
 
   def encode_bool(self, value: bool) -> None:
     """Encodes a Boolean value as a single bit."""
-    self.encoded |= int(bool(value)) << self.shift(1)
+    self.result |= value << self.shift(1)
 
-  def encode_ally(self, allies: Ally) -> None:
-    """Encodes a compound Ally value as a full-width (13-bit) bitfield.
+  def encode_ally(self, ally: Ally) -> None:
+    """Encodes an Ally's value as a full-width (13-bit) bitfield.
     
-    For singular Ally values, see add_ally().
+    For Ally enumeration members, see encode_squad().
     """
-    self.encoded |= allies.value << self.shift(len(Ally))
+    self.result |= ally.value << self.shift(len(Ally))
 
-  def encode_loyal_ally(self, allies: Ally) -> None:
-    """Encodes a compound Ally value masked with LOYALTY_MASK (12 bits)."""
-    loyal = allies & LOYALTY_MASK
-    self.encoded |= loyal.value << self.shift(len(LOYALTY_MASK))
+  def encode_loyal_ally(self, loyal: Ally) -> None:
+    """Encodes an Ally's value masked with LOYALTY_MASK (12 bits)."""
+    loyal &= LOYALTY_MASK
+    self.result |= loyal.value << self.shift(len(LOYALTY_MASK))
 
-  def encode_optional_ally(self, allies: Ally) -> None:
-    """Encodes a compound Ally value masked with OPTIONAL (8 bits)."""
-    optional = (allies & OPTIONAL).value >> ffs(OPTIONAL.value)
-    self.encoded |= optional << self.shift(len(OPTIONAL))
+  def encode_optional_ally(self, ally: Ally) -> None:
+    """Encodes an Ally's value masked with OPTIONAL (8 bits)."""
+    optional = (ally & OPTIONAL).value >> ffs(OPTIONAL.value)
+    self.result |= optional << self.shift(len(OPTIONAL))
 
   def encode_squad(self, squad: Ally, size: int = 1) -> None:
-    """Encodes size 1-indexed bit positions of an Ally as 4-bit values starting
-    from the first set bit."""
+    """Encodes size 1-indexed bit positions of an Ally's value as 4-bit values
+    starting from the first set bit."""
     for index, bit_pos in enumerate(bit_positions(squad.value)):
       if index >= size:
         return
-      self.encoded |= (bit_pos + 1) << self.shift(4)
+      self.result |= (bit_pos + 1) << self.shift(4)
     # "Extra" squadmates are encoded as zeros.
     self.shift(4 * (size - len(squad)))
 
   def encode_picks(self, picks: list[Ally]) -> None:
-    if not (picks and picks[0]):
-      self.encode_bool(False)
-      self.encode_squad(NOBODY)
-    else:
-      pick_count = len(picks)
-      self.encode_bool(pick_count < 3)
-      self.encode_squad(picks[0])
-      self.encode_squad(picks[1] if pick_count > 1 else NOBODY)
+    """Encodes up to two 1-indexed bit positions of Allys with a preceding bit
+    indicating whether the last non-zero value should be considered "inverted".
+    """
+    pick_count = len(picks)
+    self.encode_bool(pick_count < 3)
+    self.encode_squad(picks[0])
+    self.encode_squad(picks[1] if pick_count > 1 else NOBODY)
 
 
 #
@@ -390,7 +428,7 @@ class Decoder:
 
   def decode_squad(self, size: int = 1) -> Ally:
     squad = NOBODY
-    for _ in range(size):
+    for index in range(size):
       ordinal = (self.encoded >> self.shift(4)) & 0xf
       if ordinal == 0:
         break
@@ -412,17 +450,18 @@ class Decoder:
 def decode_outcome(encoded: int, *, full: bool = False) -> str:
   decoder = Decoder(encoded)
   spared = decoder.decode_ally()
-  dead = decoder.decode_optional_ally() | (REQUIRED & ~spared)
-  loyalty = decoder.decode_loyal_ally()
+  dead = decoder.decode_optional_ally() | (~spared & REQUIRED)
+  loyal = decoder.decode_loyal_ally()
   crew = decoder.decode_bool()
 
   if full:
     output  = f'Survived: ({len(spared)}) {spared}\n'
     output += f'Dead:     ({len(dead)}) {dead}\n'
-    if loyalty == spared & LOYALTY_MASK:
+    if loyal == spared & LOYALTY_MASK:
       output += 'Loyal:    everyone\n'
     else:
-      output += f'Loyal:    {loyalty}\n'
+      # Include Morinth in this list if she survived.
+      output += f'Loyal:    {loyal | Ally.Morinth & spared}\n'
     return output + f'Crew:     {"survived" if crew else "dead"}'
   
   output = f'{len(spared)} survived; {len(dead)} dead; '
@@ -430,14 +469,14 @@ def decode_outcome(encoded: int, *, full: bool = False) -> str:
 
 def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   decoder = Decoder(pair[1][1])
-  loyalty = decoder.decode_loyal_ally()
+  loyal = decoder.decode_loyal_ally()
   upgraded_armor = decoder.decode_bool()
   upgraded_shield = decoder.decode_bool()
   upgraded_weapon = decoder.decode_bool()
   if not upgraded_shield:
     cbs_invert, cbs_picks = decoder.decode_picks()
   tech = decoder.decode_squad()
-  has_leader1 = bool(tech & loyalty & IDEAL_TECHS)
+  has_leader1 = bool(tech & loyal & IDEAL_TECHS)
   if has_leader1:
     leader1 = decoder.decode_bool()
   biotic = decoder.decode_squad()
@@ -464,14 +503,14 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   # Recruitment is decoded from the outcome.
   decoder = Decoder(pair[0])
   everyone = decoder.decode_ally() | decoder.decode_optional_ally() | REQUIRED
-
   output += 'Recruit: {}\n'.format(everyone & OPTIONAL)
-  if loyalty == everyone & LOYALTY_MASK:
+
+  if loyal == everyone & LOYALTY_MASK:
     output += 'Do all loyalty missions.\n'
-  elif not loyalty:
+  elif not loyal:
     output += 'Do no loyalty missions.\n'
   else:
-    output += f'Loyalty Missions: {loyalty}\n'
+    output += f'Loyalty Missions: {loyal}\n'
   
   if not upgraded_shield:
     output += 'For the cargo bay squad, '
@@ -515,20 +554,24 @@ def decode_traversal(pair: tuple[int, tuple[int, int]]) -> str:
   return output
 
 
-# This class performs a depth-first traversal of all possible combinations of
-# decisions that affect the survival of allies in Mass Effect 2's final
-# mission sequence. This will generate a dictionary of all possible outcomes
-# mapped to the decision sequences that produce them.
-#
-# Due to the highly recursive nature of the algorithm, memory usage is a
-# concern. To reduce it somewhat, decision sequences and outcomes are encoded
-# into a compact format for storage.
 class DecisionTree:
+  """Generates outcomes and traversals for Mass Effect 2's suicide mission.
+  
+  This class performs a depth-first traversal of all possible combinations of
+  decisions that affect the survival of allies in Mass Effect 2's final
+  mission sequence. This will generate a dictionary of all possible outcomes
+  mapped to the decision sequences that produce them.
+  
+  Due to the highly recursive nature of the algorithm, memory usage is a
+  concern. To reduce it somewhat, decision sequences and outcomes are encoded
+  into a compact format for storage.
+  """
+
   def __init__(self, file_path: str = 'me2.dat'):
     """Constructs a decision tree and optionally loads data from the file at the
     given file_path."""
     self.file_path = file_path
-    self.loyalty = NOBODY
+    self.loyal = NOBODY
     self.memo: dict[str, Any] = {}
     self.outcomes: dict[int, tuple[int, int]] = {}
     self.pausing = False
@@ -537,46 +580,6 @@ class DecisionTree:
     # Used for marking which keys from the memo have already been read.
     self.spent_memo_keys: set[MemoKey] = set()
     self.load()
-  
-  def loyal(self, ally: Ally) -> bool:
-    """Checks if the given ally is loyal."""
-    return bool(self.loyalty & ally)
-
-  def get_victim(self, team: Ally, priority: list[Ally]) -> Ally:
-    """Selects the active teammate who should die based on the given
-    priority."""
-    for ally in priority:
-      if ally & team:
-        return ally
-    raise RuntimeError("No victim")
-
-  def get_htl_victim(self, htl_team: Ally) -> Ally:
-    """Selects the "hold the line" ally who should die based on the given
-    priority."""
-    # If everyone is loyal, this is the same as get_victim().
-    if htl_team == (htl_team & self.loyalty):
-      return self.get_victim(htl_team, DP_HOLD_THE_LINE)
-    for ally in DP_HOLD_THE_LINE:
-      if ally & htl_team and not self.loyal(ally):
-        return ally
-    return self.get_victim(htl_team, DP_HOLD_THE_LINE)
-
-  def get_htl_toll(self, htl_team: Ally) -> int:
-    """Computes the death toll for the allies who "hold the line"."""
-    team_size = len(htl_team)
-    if team_size < 1:
-      raise ValueError('Zero hold-the-line allies')
-    # Compute the average defense score.
-    score = 0.
-    for ally in htl_team:
-      score += DEFENSE_SCORE[ally]
-      # Each disloyal ally subtracts 1 from the defense score total.
-      if not self.loyal(ally):
-        score -= 1
-    score /= team_size
-    if team_size < len(HTL_TOLL_FORMULA):
-      return HTL_TOLL_FORMULA[team_size](score)
-    return HTL_TOLL_FORMULA[-1](score)
 
   #
   # Outcome Encoding
@@ -593,13 +596,13 @@ class DecisionTree:
     # are dead.
     encoder.encode_optional_ally(team.dead)
     # The loyalty of dead allies does not affect the uniqueness of the outcome.
-    encoder.encode_loyal_ally(self.loyalty & team.spared)
+    encoder.encode_loyal_ally(self.loyal & team.spared)
     encoder.encode_bool(self.get_memo(MemoKey.CREW, False))
-    outcome = int(encoder)
+    outcome = encoder.result
 
     # The bit-width of the encoded traversal is variable. (min, max) = (40, 59)
     encoder = Encoder()
-    encoder.encode_loyal_ally(self.loyalty & (team.spared | team.dead))
+    encoder.encode_loyal_ally(self.loyal & (team.spared | team.dead))
     encoder.encode_bool(self.get_memo(MemoKey.ARMOR, True))
     encoder.encode_bool((shield := self.get_memo(MemoKey.SHIELD, True)))
     encoder.encode_bool(self.get_memo(MemoKey.WEAPON, True))
@@ -620,7 +623,7 @@ class DecisionTree:
       # meaningful squad selection is possible.
       encoder.encode_picks(self.cache[CacheKey.LONG_WALK_UNPICKS])
     encoder.encode_squad(self.get_memo(MemoKey.FINAL_SQUAD, NOBODY), 2)
-    traversal = int(encoder)
+    traversal = encoder.result
     
     # Replace the outcome tuple.
     traversal_count = self.outcomes.get(outcome, (0, 0))[0] + 1
@@ -694,7 +697,7 @@ class DecisionTree:
   def generate(self) -> None:
     """Generates decision tree outcomes."""
     # Pressing Ctrl-C gracefully pauses the operation.
-    def handle_sigint(*_):
+    def handle_sigint(*args) -> None:
       self.pausing = True
     sigint_handler = signal(SIGINT, handle_sigint)
     try:
@@ -737,10 +740,10 @@ class DecisionTree:
     # Iterate through all relevant loyalty mappings. Morinth is always loyal.
     loyalty = self.read_memo(MemoKey.LOYALTY, Ally.Morinth.value)
     while loyalty <= EVERYONE.value:
-      self.loyalty = Ally(loyalty)
+      self.loyal = Ally(loyalty)
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
-      if self.loyalty & RECRUITABLE & ~team.active:
+      if self.loyal & LOYALTY_MASK & ~team.active:
         loyalty += lsb(loyalty)
         continue
       self.write_memo(MemoKey.LOYALTY, loyalty)
@@ -754,7 +757,7 @@ class DecisionTree:
       self.choose_armor_upgrade(team)
     # If Samara was recruited and loyal, re-run with Morinth instead.
     # Recruiting Morinth always kills Samara.
-    if Ally.Samara & team.active and self.loyal(Ally.Samara):
+    if Ally.Samara & team.active & self.loyal:
       self.write_memo(MemoKey.MORINTH, True)
       self.choose_armor_upgrade(copy(team).recruit(Ally.Morinth))
     self.clear_memo(MemoKey.MORINTH)
@@ -765,7 +768,7 @@ class DecisionTree:
       self.choose_shield_upgrade(team)
     # Otherwise, there is a victim.
     self.write_memo(MemoKey.ARMOR, False)
-    victim = self.get_victim(team.active, DP_NO_ARMOR_UPGRADE)
+    victim = get_victim(team.active, DP_NO_ARMOR_UPGRADE)
     self.choose_shield_upgrade(copy(team).kill(victim))
     self.clear_memo(MemoKey.ARMOR)
 
@@ -787,7 +790,7 @@ class DecisionTree:
     # the #3 victim will die. Therefore, there are only three possible victims.
     picks: list[Ally] = []
     for pick in range(3):
-      victim = self.get_victim(pool, DP_NO_SHIELD_UPGRADE)
+      victim = get_victim(pool, DP_NO_SHIELD_UPGRADE)
       picks.append(victim)
       if pick >= memo_pick:
         self.write_memo(MemoKey.CB_PICK, pick)
@@ -811,7 +814,7 @@ class DecisionTree:
       self.choose_tech(team)
     # Otherwise, there is a victim.
     self.write_memo(MemoKey.WEAPON, False)
-    victim = self.get_victim(team.active, DP_NO_WEAPON_UPGRADE)
+    victim = get_victim(team.active, DP_NO_WEAPON_UPGRADE)
     self.choose_tech(copy(team).kill(victim))
     self.clear_memo(MemoKey.WEAPON)
   
@@ -820,18 +823,18 @@ class DecisionTree:
     cur_tech = self.read_memo(MemoKey.TECH, NOBODY)
     for tech in team.active & ~cur_tech.lt():
       self.write_memo(MemoKey.TECH, tech)
-      # If the tech specialist is not loyal or ideal, they will die, regardless
-      # of the leader selection.
-      if not self.loyal(tech) or not (tech & IDEAL_TECHS):
-        self.choose_biotic(copy(team).kill(tech))
-      else:
-        # Otherwise, their survival depends on the fireteam leader.
+      # If the tech specialist is loyal and ideal, their survival depends on the
+      # first fireteam leader.
+      if tech & self.loyal & IDEAL_TECHS:
         self.choose_first_leader(team, tech)
+      else:
+        # Otherwise, they will die. The first fireteam leader does not matter.
+        self.choose_biotic(copy(team).kill(tech))
     self.clear_memo(MemoKey.TECH)
 
   def choose_first_leader(self, team: Team, tech: Ally) -> None:
     # Check if we have any ideal leaders.
-    ideal_leaders = team.active & ~tech & self.loyalty & IDEAL_LEADERS
+    ideal_leaders = team.active & ~tech & self.loyal & IDEAL_LEADERS
     if self.read_memo(MemoKey.LEADER1, bool(ideal_leaders)):
       self.write_memo(MemoKey.LEADER1, True)
       # If the leader is loyal and ideal, the tech will be spared.
@@ -844,7 +847,7 @@ class DecisionTree:
   def choose_biotic(self, team: Team) -> None:
     # Iterate through all selectable teammates for the biotic specialist.
     cur_biotic = self.read_memo(MemoKey.BIOTIC, NOBODY)
-    for biotic in team.active & ~cur_biotic.lt() & BIOTICS:
+    for biotic in team.active & BIOTICS & ~cur_biotic.lt():
       self.write_memo(MemoKey.BIOTIC, biotic)
       self.choose_second_leader(team, biotic)
     self.clear_memo(MemoKey.BIOTIC)
@@ -852,7 +855,7 @@ class DecisionTree:
   def choose_second_leader(self, team: Team, biotic: Ally) -> None:
     # Iterate through all selectable teammates for the second fireteam leader.
     cur_leader = self.read_memo(MemoKey.LEADER2, NOBODY)
-    for leader in team.active & ~(cur_leader.lt() | biotic):
+    for leader in team.active & ~(biotic | cur_leader.lt()):
       self.write_memo(MemoKey.LEADER2, leader)
       self.choose_save_the_crew(team, biotic, leader)
     self.clear_memo(MemoKey.LEADER2)
@@ -880,30 +883,30 @@ class DecisionTree:
     # If an escort is selected, they will survive if they are loyal. Otherwise,
     # they will die.
     cur_escort = self.read_memo(MemoKey.ESCORT, NOBODY)
-    for escort in team.active & ESCORTS & ~(cur_escort.lt() | biotic | leader):
+    for escort in team.active & ESCORTS & ~(biotic | leader | cur_escort.lt()):
       self.write_memo(MemoKey.ESCORT, escort)
       s = copy(team)
-      s.spare(escort) if self.loyal(escort) else s.kill(escort)
+      s.spare(escort) if escort & self.loyal else s.kill(escort)
       self.choose_walk_squad(s, biotic, leader)
     self.clear_memo(MemoKey.ESCORT)
   
   def choose_walk_squad(self, team: Team, biotic: Ally, leader: Ally) -> None:
     # If the biotic specialist is loyal and ideal, they will not get anyone on
     # your squad killed, so the squad choice does not matter.
-    if self.loyal(biotic) and biotic & IDEAL_BIOTICS:
+    if biotic & self.loyal & IDEAL_BIOTICS:
       return self.choose_final_squad(team, leader)
     # If your team is too small to merit a meaningful squad selection, there is
     # only one possible outcome.
     pool = team.active & ~(biotic | leader)
     if len(pool) < 3:
-      victim = self.get_victim(pool, DP_THE_LONG_WALK)
+      victim = get_victim(pool, DP_THE_LONG_WALK)
       return self.choose_final_squad(copy(team).kill(victim), leader)
     # Otherwise, you may be able to affect who the victim is through your squad
     # selection.
     memo_unpick = self.read_memo(MemoKey.WALK_UNPICK, 0)
     self.cache[CacheKey.LONG_WALK_UNPICKS] = (unpicks := [])
     for unpick in range(min(len(pool) - 1, 3)):
-      victim = self.get_victim(pool, DP_THE_LONG_WALK)
+      victim = get_victim(pool, DP_THE_LONG_WALK)
       unpicks.append(victim)
       if unpick >= memo_unpick:
         self.write_memo(MemoKey.WALK_UNPICK, unpick)
@@ -919,7 +922,7 @@ class DecisionTree:
     # 1. They are loyal and ideal
     # 2. They are special-cased (Miranda)
     # 3. There are fewer than four active teammates (including the leader).
-    alive = self.loyal(leader) and leader & IDEAL_LEADERS
+    alive = bool(leader & self.loyal & IDEAL_LEADERS)
     alive = alive or leader & IMMORTAL_LEADERS or len(team.active) < 4
     if not alive:
       team = copy(team).kill(leader)
@@ -931,17 +934,17 @@ class DecisionTree:
         continue
       memo_squad = NOBODY
       self.write_memo(MemoKey.FINAL_SQUAD, squad)
-      # The remaining active teammates will "hold the line."
-      htl_mates = team.active & ~squad
-      htl_toll = self.get_htl_toll(htl_mates)
+      # The remaining active teammates form the defense team.
+      defense_team = team.active & ~squad
+      death_toll = get_defense_toll(defense_team, self.loyal)
       s = copy(team)
-      for _ in range(htl_toll):
-        victim = self.get_htl_victim(htl_mates)
+      for index in range(death_toll):
+        victim = get_defense_victim(defense_team, self.loyal)
         s.kill(victim)
-        htl_mates &= ~victim
+        defense_team &= ~victim
       # Any member of your squad that is not loyal will die.
       for squadmate in squad:
-        if not self.loyal(squadmate):
+        if squadmate & ~self.loyal:
           s.kill(squadmate)
       # Any active teammates at this point have survived.
       s.spare(s.active)
@@ -949,10 +952,23 @@ class DecisionTree:
     self.clear_memo(MemoKey.FINAL_SQUAD)
 
 
+# TODO: Decouple decoding from stringification.
+# TODO: Speed up outcome encoding.
+#   This likely means a hierarchy like:
+#     Encoder
+#       VariableEncoder
+#       OutcomeEncoder
+#   ... perhaps with a parallel tree for decoding, especially since it can make
+#   queries less annoying to write.
+# TODO: Add missing docstrings.
+# TODO: Move some stuff to other modules.
+#   me2bit, me2def, me2encdec
+# TODO: Add leading underscores to symbols that do not need to be imported from
+# each module.
 if __name__ == '__main__':
   dt = DecisionTree()
   dt.generate()
 
-  # Print the number of outcomes generated so far.
+  # Print the number of outcomes that have been generated.
   print(sum(t[0] for t in dt.outcomes.values()), 'traversals')
   print(len(dt.outcomes), 'unique outcomes')
