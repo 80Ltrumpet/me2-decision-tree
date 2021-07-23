@@ -3,7 +3,7 @@ from enum import auto as _auto, Flag
 from statistics import fmean as _fmean
 from typing import Callable, Generator
 
-from .bits import ffs as _ffs, lsb as _lsb
+from .bits import ffs as _ffs, lsb as _lsb, mask as _mask
 
 class Ally(Flag):
   """Enumeration of all allies in Mass Effect 2."""
@@ -73,7 +73,7 @@ class Ally(Flag):
       return self.name
     if self.value == 0:
       return 'nobody'
-    if self.value == (1 << len(Ally)) - 1:
+    if self.value == _mask(len(Ally)):
       return 'everyone'
     names = sorted(ally.name for ally in self)
     if len(names) == 2:
@@ -89,7 +89,7 @@ class Ally(Flag):
 #
 
 NOBODY = Ally(0)
-EVERYONE = Ally((1 << len(Ally)) - 1)
+EVERYONE = Ally(_mask(len(Ally)))
 
 # These allies are required to complete the game.
 REQUIRED = Ally.Garrus | Ally.Jack | Ally.Jacob | Ally.Miranda | Ally.Mordin
