@@ -1,11 +1,11 @@
 from __future__ import annotations
-from enum import auto as _auto, Flag
+from enum import auto as _auto, Flag as _Flag
 from statistics import fmean as _fmean
 from typing import Callable, Generator
 
 from .bits import ffs as _ffs, lsb as _lsb, mask as _mask
 
-class Ally(Flag):
+class Ally(_Flag):
   """Enumeration of all allies in Mass Effect 2."""
 
   # Required

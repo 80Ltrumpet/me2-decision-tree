@@ -1,11 +1,10 @@
 from __future__ import annotations
-from enum import Enum, auto as _auto
+from enum import Enum as _Enum, auto as _auto
 from functools import reduce as _reduce
 from itertools import combinations as _combinations
 from operator import or_ as _or_
-from pickle import Pickler, Unpickler
+from pickle import Pickler as _Pickler, Unpickler as _Unpickler
 from signal import SIGINT, signal as _signal
-import sys
 from typing import Any, Optional, TypeVar
 
 from .bits import lsb as _lsb
@@ -125,8 +124,8 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
 class Team:
   """Team state tracker
   
-  This class is immutable to make it "stack-friendly." Mutations always return
-  a new instance.
+  This class is immutable to make it "stack-friendly." Operative methods always
+  return a new instance.
   """
   __slots__ = ['active', 'dead', 'spared']
 
@@ -164,7 +163,7 @@ class Team:
     return Team(active, dead, self.spared)
 
 
-class MemoKey(Enum):
+class MemoKey(_Enum):
   N_OPT = _auto()
   RECRUITS = _auto()
   LOYALTY = _auto()
@@ -183,18 +182,18 @@ class MemoKey(Enum):
   FINAL_SQUAD = _auto()
 
 
-class CacheKey(Enum):
+class CacheKey(_Enum):
   CARGO_BAY_PICKS = _auto()
   LONG_WALK_UNPICKS = _auto()
 
 
-class DecisionTreePauseException(Exception):
+class _DecisionTreePauseException(Exception):
   """Custom exception type for pausing execution of the decision tree."""
   pass
 
 
 # Used for generic type annotations.
-T = TypeVar('T')
+_T = TypeVar('_T')
 
 class DecisionTree:
   """Generates outcomes and traversals for Mass Effect 2's suicide mission.
@@ -228,7 +227,7 @@ class DecisionTree:
   # Outcome Encoding
   #
 
-  def encode_outcome(self, team: Team) -> None:
+  def record_outcome(self, team: Team) -> None:
     """Encodes the outcome based on the final state of the team and adds it to
     the outcome dictionary with a 2-tuple containing the number of traversals
     resulting in that outcome and an encoding of the last such traversal."""
@@ -263,7 +262,7 @@ class DecisionTree:
       # meaningful squad selection is possible.
       encoder.encode_choices(self.cache[CacheKey.LONG_WALK_UNPICKS])
     encoder.encode_squad(self.get_memo(MemoKey.FINAL_SQUAD, NOBODY))
-    traversal = encoder.get_result()
+    traversal = encoder.result
     
     # Replace the outcome tuple.
     traversal_count = self.outcomes.get(outcome, (0, 0))[0] + 1
@@ -276,7 +275,7 @@ class DecisionTree:
   # following methods, their names are stored as the keys for optimal pickling.
   #
 
-  def get_memo(self, key: MemoKey, default: T) -> T:
+  def get_memo(self, key: MemoKey, default: _T) -> _T:
     """Gets the value of the requested memo key."""
     # Ally values are stored in the memo as integers, so this check makes their
     # retrieval less annoying and error-prone.
@@ -284,7 +283,7 @@ class DecisionTree:
       return Ally(self.memo.get(key.name, default.value))  # type: ignore
     return self.memo.get(key.name, default)
 
-  def read_memo(self, key: MemoKey, default: T) -> T:
+  def read_memo(self, key: MemoKey, default: _T) -> _T:
     """Gets the value of the requested memo key on the first call.
     
     On subsequent calls or if the key is not in the memo, returns default.
@@ -299,7 +298,7 @@ class DecisionTree:
     requested a pause."""
     self.memo[key.name] = value.value if isinstance(value, Ally) else value
     if self.pausing:
-      raise DecisionTreePauseException()
+      raise _DecisionTreePauseException()
 
   def clear_memo(self, key: MemoKey) -> None:
     """Deletes a key from the memo, whether or not it exists."""
@@ -312,7 +311,7 @@ class DecisionTree:
   def save(self) -> None:
     """Writes memo and outcome data to a file."""
     with open(self.file_path, 'wb') as datafile:
-      pickler = Pickler(datafile)
+      pickler = _Pickler(datafile)
       pickler.dump(self.memo)
       pickler.dump(self.outcomes)
 
@@ -320,7 +319,7 @@ class DecisionTree:
     """Reads memo and outcome data from a file."""
     try:
       with open(self.file_path, 'rb') as datafile:
-        unpickler = Unpickler(datafile)
+        unpickler = _Unpickler(datafile)
         self.memo = unpickler.load()
         self.outcomes = unpickler.load()
     except FileNotFoundError:
@@ -338,7 +337,7 @@ class DecisionTree:
     sigint_handler = _signal(SIGINT, handle_sigint)
     try:
       self.choose_recruitment()
-    except DecisionTreePauseException:
+    except _DecisionTreePauseException:
       pass
     finally:
       self.save()
@@ -578,11 +577,13 @@ class DecisionTree:
       # Any member of your squad that is not loyal will die.
       victims |= squad & ~self.loyal
       # Any active teammates at this point have survived.
-      self.encode_outcome(team.kill_and_spare_active(victims))
+      self.record_outcome(team.kill_and_spare_active(victims))
     self.clear_memo(MemoKey.FINAL_SQUAD)
 
 
 if __name__ == '__main__':
+  import sys
+
   if len(sys.argv) < 2:
     print('Usage: python -m me2.dt <path to decision tree data file>')
     sys.exit(2)
