@@ -8,7 +8,7 @@
       "name": "Python: ME2 Decision Tree",
       "type": "python",
       "request": "launch",
-      "module": "me2.dt",
+      "module": "me2",
       "args": ["${workspaceFolder}/me2.dat"]
     }
   ]

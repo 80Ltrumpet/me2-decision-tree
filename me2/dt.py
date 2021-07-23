@@ -329,6 +329,10 @@ class DecisionTree:
   # Runtime
   #
 
+  def is_complete(self) -> bool:
+    """Checks if the decision tree has exhausted all possible traversals."""
+    return self.get_memo(MemoKey.N_OPT, None) == 0
+
   def generate(self) -> None:
     """Generates decision tree outcomes."""
     # Pressing Ctrl-C gracefully pauses the operation.
@@ -579,22 +583,3 @@ class DecisionTree:
       # Any active teammates at this point have survived.
       self.record_outcome(team.kill_and_spare_active(victims))
     self.clear_memo(MemoKey.FINAL_SQUAD)
-
-
-if __name__ == '__main__':
-  import sys
-
-  if len(sys.argv) < 2:
-    print('Usage: python -m me2.dt <path to decision tree data file>')
-    sys.exit(2)
-  dt_file_path = sys.argv[1]
-
-  dt = DecisionTree(dt_file_path)
-  if not dt.outcomes:
-    print(f"'{dt_file_path}' is empty or does not exist.",
-          "Starting from scratch.", sep='\n')
-  dt.generate()
-
-  # Print the number of outcomes that have been generated.
-  print(sum(t[0] for t in dt.outcomes.values()), 'traversals')
-  print(len(dt.outcomes), 'unique outcomes')
