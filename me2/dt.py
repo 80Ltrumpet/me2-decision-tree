@@ -9,14 +9,16 @@ from typing import Any, Optional, TYPE_CHECKING, TypeVar
 
 from .bits import lsb as _lsb
 from .defs import *
-from .encdec import Decoder, Encoder, decode_outcome, encode_outcome
+from .encdec import Decoder as _Decoder, Encoder as _Encoder
+from .encdec import decode_outcome as _decode_outcome
+from .encdec import encode_outcome as _encode_outcome
 
 def describe_outcome(encoded: int, *, full: bool = False) -> str:
   """Produces a human-readable string describing the encoded outcome.
   
   For the most verbose output, set full to True.
   """
-  outcome = decode_outcome(encoded)
+  outcome = _decode_outcome(encoded)
 
   if full:
     output  = f'Survived: ({len(outcome["spared"])}) {outcome["spared"]}\n'
@@ -35,7 +37,7 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
   outcome dictionary entry."""
   # First, decode the traversal using the same variable sequence as the
   # encoding.
-  decoder = Decoder(entry[1][1])
+  decoder = _Decoder(entry[1][1])
   loyal = decoder.decode_ally_loyalty()
   upgraded_armor = decoder.decode_bool()
   upgraded_shield = decoder.decode_bool()
@@ -68,7 +70,7 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
     output += f'Upgrade: {", ".join(k for k, v in upgrade_map.items() if v)}\n'
 
   # Recruitment is decoded from the outcome.
-  outcome = decode_outcome(entry[0])
+  outcome = _decode_outcome(entry[0])
   everyone = outcome['spared'] | outcome['dead'] | REQUIRED
   output += f'Recruit: {everyone & OPTIONAL}\n'
 
@@ -245,7 +247,7 @@ class DecisionTree:
     the outcome dictionary with a 2-tuple containing the number of traversals
     resulting in that outcome and an encoding of the last such traversal."""
     # The encoded outcome is 34 bits wide.
-    outcome = encode_outcome(
+    outcome = _encode_outcome(
       spared = team.spared,
       dead = team.dead,
       loyalty = team.spared & self.loyal,
@@ -253,7 +255,7 @@ class DecisionTree:
     )
 
     # The bit-width of the encoded traversal is variable. (min, max) = (40, 59)
-    encoder = Encoder()
+    encoder = _Encoder()
     encoder.encode_ally_loyalty(self.loyal & (team.spared | team.dead))
     encoder.encode_bool(self.get_memo(MemoKey.ARMOR, True))
     encoder.encode_bool((shield := self.get_memo(MemoKey.SHIELD, True)))
