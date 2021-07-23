@@ -5,7 +5,7 @@ from itertools import combinations as _combinations
 from operator import or_ as _or_
 from pickle import Pickler as _Pickler, Unpickler as _Unpickler
 from signal import SIGINT, signal as _signal
-from typing import Any, Optional, TypeVar
+from typing import Any, Optional, TYPE_CHECKING, TypeVar
 
 from .bits import lsb as _lsb
 from .defs import *
@@ -121,7 +121,20 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
   output += f'Pick {final_squad} for your final squad.\n'
   return output
 
-class Team:
+
+# Static analysis does not do so well with mixin-esque classes. Since Team does
+# not explicitly declare its attributes, we have to special-case its definition
+# for type-checking to avoid "unfair" errors.
+if TYPE_CHECKING:
+  class MutableTeam:
+    active = REQUIRED
+    dead = NOBODY
+    spared = NOBODY
+  _TeamBase = MutableTeam
+else:
+  _TeamBase = object
+
+class Team(_TeamBase):
   """Team state tracker
   
   This class is immutable to make it "stack-friendly." Operative methods always
@@ -280,6 +293,9 @@ class DecisionTree:
     # Ally values are stored in the memo as integers, so this check makes their
     # retrieval less annoying and error-prone.
     if isinstance(default, Ally):
+      # FIXME: Although Pylance can detect that the type of default is Ally in
+      # the next statement, mypy does not seem to think that _T == Ally.
+      # See https://github.com/python/mypy/issues/10003.
       return Ally(self.memo.get(key.name, default.value))  # type: ignore
     return self.memo.get(key.name, default)
 
@@ -561,7 +577,7 @@ class DecisionTree:
     # 2. They are special-cased (Miranda)
     # 3. There are fewer than four active teammates (including the leader).
     alive = bool(leader & self.loyal & IDEAL_LEADERS)
-    alive = alive or leader & IMMORTAL_LEADERS or len(team.active) < 4
+    alive = alive or bool(leader & IMMORTAL_LEADERS) or len(team.active) < 4
     if not alive:
       team = team.kill(leader)
     # Iterate through all possible final squads.

@@ -144,7 +144,7 @@ class Decoder:
 
 def decode_outcome(encoded: int) -> dict[str, Any]:
   """Decodes outcome data from an int."""
-  outcome = {}
+  outcome: dict[str, Any] = {}
   decoder = Decoder(encoded)
   outcome['spared'] = (spared := decoder.decode_ally())
   outcome['dead'] = decoder.decode_ally_optional() | _REQUIRED & ~spared
