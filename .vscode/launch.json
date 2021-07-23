@@ -5,11 +5,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Python: Current File",
+      "name": "Python: ME2 Decision Tree",
       "type": "python",
       "request": "launch",
-      "program": "${file}",
-      "console": "integratedTerminal"
+      "module": "me2.dt",
+      "args": ["${workspaceFolder}/me2.dat"]
     }
   ]
 }
