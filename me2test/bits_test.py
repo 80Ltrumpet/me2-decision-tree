@@ -8,6 +8,13 @@ class BitsTest(unittest.TestCase):
   def test_no_bits(self):
     self.assertEqual(list(bits(0)), [])
 
+class BitIndicesTest(unittest.TestCase):
+  def test_has_bits(self):
+    self.assertEqual(list(bit_indices(0x69)), [0, 3, 5, 6])
+
+  def test_no_bits(self):
+    self.assertEqual(list(bit_indices(0)), [])
+
 class FfsTest(unittest.TestCase):
   def test_ffs_one_bit(self):
     self.assertEqual(ffs(0x2000), 13)

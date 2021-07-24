@@ -2,7 +2,7 @@ from statistics import fmean as _fmean
 from typing import Callable
 
 from .bits import popcount as _popcount
-from .defs import Ally
+from .ally import Ally as _Ally
 
 #
 # Death Priorities
@@ -12,39 +12,39 @@ from .defs import Ally
 # death when certain conditions are met.
 
 # The "Silaris Armor" upgrade was not purchased.
-DP_NO_ARMOR_UPGRADE = [Ally.Jack]
+DP_NO_ARMOR_UPGRADE = [_Ally.Jack]
 
 # The "Cyclonic Shields" upgrade was not purchased.
 DP_NO_SHIELD_UPGRADE = [
-  Ally.Kasumi, Ally.Legion, Ally.Tali, Ally.Thane,
-  Ally.Garrus, Ally.Zaeed, Ally.Grunt, Ally.Samara,
-  Ally.Morinth
+  _Ally.Kasumi, _Ally.Legion, _Ally.Tali, _Ally.Thane,
+  _Ally.Garrus, _Ally.Zaeed, _Ally.Grunt, _Ally.Samara,
+  _Ally.Morinth
 ]
 
 # The "Thanix Cannon" upgrade was not purchased.
 DP_NO_WEAPON_UPGRADE = [
-  Ally.Thane, Ally.Garrus, Ally.Zaeed, Ally.Grunt,
-  Ally.Jack, Ally.Samara, Ally.Morinth
+  _Ally.Thane, _Ally.Garrus, _Ally.Zaeed, _Ally.Grunt,
+  _Ally.Jack, _Ally.Samara, _Ally.Morinth
 ]
 
 # Chose a disloyal or non-specialist biotic for The Long Walk.
 DP_THE_LONG_WALK = [
-  Ally.Thane, Ally.Jack, Ally.Garrus, Ally.Legion,
-  Ally.Grunt, Ally.Samara, Ally.Jacob, Ally.Mordin,
-  Ally.Tali, Ally.Kasumi, Ally.Zaeed, Ally.Morinth
+  _Ally.Thane, _Ally.Jack, _Ally.Garrus, _Ally.Legion,
+  _Ally.Grunt, _Ally.Samara, _Ally.Jacob, _Ally.Mordin,
+  _Ally.Tali, _Ally.Kasumi, _Ally.Zaeed, _Ally.Morinth
 ]
 
 # The average defense score is too low for the defending allies during the final
 # battle. Unlike the other death priority lists, non-loyal allies are
 # prioritized above loyal allies (see get_defense_victim()).
 _DP_DEFENSE = [
-  Ally.Mordin, Ally.Tali, Ally.Kasumi, Ally.Jack,
-  Ally.Miranda, Ally.Jacob, Ally.Garrus, Ally.Samara,
-  Ally.Morinth, Ally.Legion, Ally.Thane, Ally.Zaeed,
-  Ally.Grunt
+  _Ally.Mordin, _Ally.Tali, _Ally.Kasumi, _Ally.Jack,
+  _Ally.Miranda, _Ally.Jacob, _Ally.Garrus, _Ally.Samara,
+  _Ally.Morinth, _Ally.Legion, _Ally.Thane, _Ally.Zaeed,
+  _Ally.Grunt
 ]
 
-def get_victim(team: int, priority: list[int]) -> int:
+def get_victim(team: _Ally, priority: list[_Ally]) -> _Ally:
   """Selects the teammate who should die based on the given priority."""
   for ally in priority:
     if ally & team:
@@ -53,7 +53,7 @@ def get_victim(team: int, priority: list[int]) -> int:
   # are in the priority list.
   raise RuntimeError("No victim")
 
-def get_defense_victim(defense_team: int, loyal: int) -> int:
+def get_defense_victim(defense_team: _Ally, loyal: _Ally) -> _Ally:
   """Selects the defending teammate who should die."""
   # If everyone is loyal, this is the same as get_victim().
   if defense_team == defense_team & loyal:
@@ -72,19 +72,19 @@ def get_defense_victim(defense_team: int, loyal: int) -> int:
 # assigned defense scores according to their "innate defensiveness". If an ally
 # is disloyal, their score is decreased by 1 (see get_defense_toll()).
 _DEFENSE_SCORE = {
-  Ally.Garrus: 4,
-  Ally.Grunt: 4,
-  Ally.Jack: 1,
-  Ally.Jacob: 2,
-  Ally.Kasumi: 1,
-  Ally.Legion: 2,
-  Ally.Miranda: 2,
-  Ally.Mordin: 1,
-  Ally.Samara: 2,
-  Ally.Tali: 1,
-  Ally.Thane: 2,
-  Ally.Zaeed: 4,
-  Ally.Morinth: 2
+  _Ally.Garrus: 4,
+  _Ally.Grunt: 4,
+  _Ally.Jack: 1,
+  _Ally.Jacob: 2,
+  _Ally.Kasumi: 1,
+  _Ally.Legion: 2,
+  _Ally.Miranda: 2,
+  _Ally.Mordin: 1,
+  _Ally.Samara: 2,
+  _Ally.Tali: 1,
+  _Ally.Thane: 2,
+  _Ally.Zaeed: 4,
+  _Ally.Morinth: 2
 }
 
 # Lookup table for the number of defending allies who will die according to the
@@ -99,7 +99,7 @@ _DEFENSE_TOLL_FORMULA: list[Callable[[float], int]] = [
   lambda x: 3 if x < 0.5 else 2 if x < 1.5 else 1 if x < 2 else 0
 ]
 
-def get_defense_toll(defense_team: int, loyal: int) -> int:
+def get_defense_toll(defense_team: _Ally, loyal: _Ally) -> int:
   """Computes the death toll for the defense team."""
   if not (team_size := len(defense_team)):
     raise ValueError('Zero defending allies')

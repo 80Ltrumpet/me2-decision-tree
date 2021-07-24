@@ -1,10 +1,9 @@
 from __future__ import annotations
 from enum import auto as _auto, Flag as _Flag
-from statistics import fmean as _fmean
-from typing import Callable, Generator
+from typing import Generator
 
-from .bits import bits as _bits, ffs as _ffs, mask as _mask, mtz as _mtz
-from .bits import popcount as _popcount
+from .bits import bits as _bits, bit_indices as _bit_indices, ffs as _ffs
+from .bits import mask as _mask, mtz as _mtz, popcount as _popcount
 
 class Ally(_Flag):
   """Enumeration of all allies in Mass Effect 2."""
@@ -47,7 +46,7 @@ class Ally(_Flag):
     
     Indices start from 1.
     """
-    return (i for i, _ in enumerate(self, 1))
+    return (i + 1 for i in _bit_indices(self.value))
 
   def __len__(self) -> int:
     """Counts the number of allies represented by this Ally."""

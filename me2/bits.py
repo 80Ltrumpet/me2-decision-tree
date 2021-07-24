@@ -15,6 +15,22 @@ def bits(x: int) -> Generator[int, None, None]:
       yield mask
     mask <<= 1
 
+def bit_indices(x: int) -> Generator[int, None, None]:
+  """Generates the bit index for each set bit in x.
+  
+  >>> [index for index in bit_indices(42)]
+  [1, 3, 5]
+  >>> [index for index in bit_indices(0x69)]
+  [0, 3, 5, 6]
+  """
+  index = 0
+  mask = 1
+  while mask <= x:
+    if mask & x:
+      yield index
+    index += 1
+    mask <<= 1
+
 def ffs(x: int) -> int:
   """Finds the position of the first set bit in x or -1 if no bits are set.
   

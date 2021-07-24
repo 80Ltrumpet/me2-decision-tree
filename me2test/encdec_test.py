@@ -1,4 +1,4 @@
-from me2.defs import Ally
+from me2.ally import Ally
 from me2.encdec import Decoder, Encoder, decode_outcome, encode_outcome
 import unittest
 

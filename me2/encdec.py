@@ -1,9 +1,9 @@
 from typing import Any, Union
 
+from .ally import Ally as _Ally, LOYALTY_MASK as _LOYALTY_MASK
+from .ally import NOBODY as _NOBODY, OPTIONAL as _OPTIONAL
+from .ally import REQUIRED as _REQUIRED
 from .bits import ffs as _ffs, mask as _mask
-from .defs import Ally as _Ally, LOYALTY_MASK as _LOYALTY_MASK
-from .defs import NOBODY as _NOBODY, OPTIONAL as _OPTIONAL
-from .defs import REQUIRED as _REQUIRED
 
 _ALLY_LEN = len(_Ally)
 _ALLY_LOYALTY_LEN = len(_LOYALTY_MASK)
