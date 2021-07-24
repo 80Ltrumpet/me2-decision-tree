@@ -11,7 +11,7 @@ def ffs(x: int) -> int:
     mask <<= 1
   return -1
 
-def lsb(x: int) -> int:
+def fsb(x: int) -> int:
   """Returns the value of the first set bit in x or 0 if no bits are set."""
   mask = 1
   while mask <= x:

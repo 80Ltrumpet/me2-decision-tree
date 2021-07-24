@@ -3,7 +3,7 @@ from enum import auto as _auto, Flag as _Flag
 from statistics import fmean as _fmean
 from typing import Callable, Generator
 
-from .bits import ffs as _ffs, lsb as _lsb, mask as _mask
+from .bits import ffs as _ffs, fsb as _fsb, mask as _mask
 
 class Ally(_Flag):
   """Enumeration of all allies in Mass Effect 2."""
@@ -32,7 +32,7 @@ class Ally(_Flag):
     This is particularly useful for reducing restart iterations, even for
     combinations, since they are guaranteed to be in sorted order.
     """
-    return Ally(_lsb(self.value) - 1) if self else Ally(0)
+    return Ally(_fsb(self.value) - 1) if self else Ally(0)
 
   def index(self) -> int:
     """Returns the index (ordinal value) of this Ally's LSB.

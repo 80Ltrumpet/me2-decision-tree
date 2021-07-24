@@ -7,7 +7,7 @@ from pickle import Pickler as _Pickler, Unpickler as _Unpickler
 from signal import SIGINT, signal as _signal
 from typing import Any, Optional, TYPE_CHECKING, TypeVar
 
-from .bits import lsb as _lsb
+from .bits import fsb as _fsb
 from .defs import *
 from .encdec import Decoder as _Decoder, Encoder as _Encoder
 from .encdec import decode_outcome as _decode_outcome
@@ -401,7 +401,7 @@ class DecisionTree:
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
       if self.loyal & LOYALTY_MASK & ~team.active:
-        loyalty += _lsb(loyalty)
+        loyalty += _fsb(loyalty)
         continue
       self.write_memo(MemoKey.LOYALTY, loyalty)
       self.choose_morinth(team)
