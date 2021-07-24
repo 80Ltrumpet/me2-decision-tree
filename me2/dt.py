@@ -8,6 +8,7 @@ from signal import SIGINT, signal as _signal
 from typing import Any, Optional, TYPE_CHECKING, TypeVar
 
 from .bits import fsb as _fsb
+from .death import *
 from .defs import *
 from .encdec import Decoder as _Decoder, Encoder as _Encoder
 from .encdec import decode_outcome as _decode_outcome
