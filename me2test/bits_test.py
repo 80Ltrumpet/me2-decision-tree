@@ -1,6 +1,13 @@
 from me2.bits import *
 import unittest
 
+class BitsTest(unittest.TestCase):
+  def test_has_bits(self):
+    self.assertEqual(list(bits(42)), [2, 8, 32])
+
+  def test_no_bits(self):
+    self.assertEqual(list(bits(0)), [])
+
 class FfsTest(unittest.TestCase):
   def test_ffs_one_bit(self):
     self.assertEqual(ffs(0x2000), 13)
@@ -31,6 +38,21 @@ class MaskTest(unittest.TestCase):
   def test_negative(self):
     with self.assertRaises(ValueError):
       mask(-1)
+
+class MtzTest(unittest.TestCase):
+  def test_positive(self):
+    self.assertEqual(mtz(0xb00), 0xff)
+
+  def test_zero(self):
+    self.assertEqual(mtz(0), 0)
+
+class PopcountTest(unittest.TestCase):
+  def test_positive(self):
+    self.assertEqual(popcount(0xdead), 11)
+    self.assertEqual(popcount(0x123456), 9)
+
+  def test_zero(self):
+    self.assertEqual(popcount(0), 0)
 
 
 if __name__ == '__main__':

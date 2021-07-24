@@ -3,7 +3,8 @@ from enum import auto as _auto, Flag as _Flag
 from statistics import fmean as _fmean
 from typing import Callable, Generator
 
-from .bits import ffs as _ffs, fsb as _fsb, mask as _mask, mtz as _mtz
+from .bits import bits as _bits, ffs as _ffs, mask as _mask, mtz as _mtz
+from .bits import popcount as _popcount
 
 class Ally(_Flag):
   """Enumeration of all allies in Mass Effect 2."""
@@ -46,26 +47,15 @@ class Ally(_Flag):
     
     Indices start from 1.
     """
-    index = 1
-    mask = 1
-    while mask <= self.value:
-      if mask & self.value:
-        yield index
-      index += 1
-      mask <<= 1
+    return (i for i, _ in enumerate(self, 1))
 
   def __len__(self) -> int:
     """Counts the number of allies represented by this Ally."""
-    # Surprisingly, this is faster than iterating over the bits.
-    return bin(self.value).count('1')
+    return _popcount(self.value)
 
   def __iter__(self) -> Generator[Ally, None, None]:
     """Generates Ally enumeration members from this Ally."""
-    mask = 1
-    while mask <= self.value:
-      if mask & self.value:
-        yield Ally(mask)
-      mask <<= 1
+    return (Ally(bit) for bit in _bits(self.value))
 
   def __str__(self) -> str:
     """Converts this Ally into a human-readable string."""
