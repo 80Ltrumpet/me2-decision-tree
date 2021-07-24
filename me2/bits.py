@@ -23,3 +23,10 @@ def fsb(x: int) -> int:
 def mask(length: int) -> int:
   """Returns a bit mask with length LSBs set."""
   return (1 << length) - 1
+
+def mtz(x: int) -> int:
+  """Returns a mask of the trailing zero bits in x.
+  
+  If no bits are set in x, returns zero.
+  """
+  return fsb(x) - 1 if x else 0
