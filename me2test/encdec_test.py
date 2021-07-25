@@ -1,4 +1,5 @@
 from me2.ally import Ally
+from me2.bits import ffs
 from me2.encdec import Decoder, Encoder, decode_outcome, encode_outcome
 import unittest
 
@@ -13,35 +14,37 @@ class EncoderTest(unittest.TestCase):
     self.assertEqual(self.encoder.result, 2)
 
   def test_encode_ally(self):
-    self.encoder.encode_ally(Ally.Garrus)
-    self.encoder.encode_ally(Ally.Tali)
+    self.encoder.encode_ally(Ally.Garrus.value)
+    self.encoder.encode_ally(Ally.Tali.value)
     self.assertEqual(self.encoder.result, 0x400001)
 
   def test_encode_ally_loyalty(self):
-    self.encoder.encode_ally_loyalty(Ally.Thane | Ally.Zaeed)
-    self.encoder.encode_ally_loyalty(Ally.Jacob | Ally.Jack)
+    self.encoder.encode_ally_loyalty((Ally.Thane | Ally.Zaeed).value)
+    self.encoder.encode_ally_loyalty((Ally.Jacob | Ally.Jack).value)
     self.assertEqual(self.encoder.result, 0x006c00)
 
   def test_encode_ally_optional(self):
-    self.encoder.encode_ally_optional(Ally.Grunt | Ally.Mordin)
-    self.encoder.encode_ally_optional(Ally.Legion | Ally.Kasumi)
+    self.encoder.encode_ally_optional((Ally.Grunt | Ally.Mordin).value)
+    self.encoder.encode_ally_optional((Ally.Legion | Ally.Kasumi).value)
     self.assertEqual(self.encoder.result, 0x601)
 
   def test_encode_ally_index(self):
-    self.encoder.encode_ally_index(Ally.Samara)
-    self.encoder.encode_ally_index(Ally.Miranda)
+    self.encoder.encode_ally_index(ffs(Ally.Samara.value) + 1)
+    self.encoder.encode_ally_index(ffs(Ally.Miranda.value) + 1)
     self.assertEqual(self.encoder.result, 0x49)
 
   def test_encode_squad(self):
-    self.encoder.encode_squad(Ally.Garrus | Ally.Tali)
-    self.encoder.encode_squad(Ally.Morinth | Ally.Jack)
+    self.encoder.encode_squad((Ally.Garrus | Ally.Tali).value)
+    self.encoder.encode_squad((Ally.Morinth | Ally.Jack).value)
     self.assertEqual(self.encoder.result, 0xd2a1)
 
   def test_encode_choices(self):
     self.encoder.encode_choices([])
-    self.encoder.encode_choices([Ally.Jacob])
-    self.encoder.encode_choices([Ally.Kasumi, Ally.Mordin])
-    self.encoder.encode_choices([Ally.Thane, Ally.Miranda, Ally.Zaeed])
+    self.encoder.encode_choices([Ally.Jacob.value])
+    self.encoder.encode_choices([Ally.Kasumi.value, Ally.Mordin.value])
+    self.encoder.encode_choices([Ally.Thane.value,
+                                 Ally.Miranda.value,
+                                 Ally.Zaeed.value])
     self.assertEqual(self.encoder.result, 0x4b2bc0e01)
 
 
@@ -49,9 +52,9 @@ class OutcomeEncoderTest(unittest.TestCase):
   def test_result(self):
     # This isn't exactly a valid outcome, but that doesn't matter for encoding!
     encoded_outcome = encode_outcome(
-      spared = Ally.Jacob | Ally.Grunt | Ally.Thane,
-      dead = Ally.Zaeed | Ally.Legion,
-      loyalty = Ally.Grunt | Ally.Jacob,
+      spared = (Ally.Jacob | Ally.Grunt | Ally.Thane).value,
+      dead = (Ally.Zaeed | Ally.Legion).value,
+      loyalty = (Ally.Grunt | Ally.Jacob).value,
       crew = True
     )
     self.assertEqual(encoded_outcome, 0x204888424)

@@ -2,8 +2,7 @@ from __future__ import annotations
 from enum import auto as _auto, Flag as _Flag
 from typing import Generator
 
-from .bits import bits as _bits, bit_indices as _bit_indices, ffs as _ffs
-from .bits import mask as _mask, mtz as _mtz, popcount as _popcount
+from .bits import bits as _bits, mask as _mask, popcount as _popcount
 
 class Ally(_Flag):
   """Enumeration of all allies in Mass Effect 2."""
@@ -25,28 +24,6 @@ class Ally(_Flag):
   Zaeed = _auto()
   # Place Morinth at the end for optimization.
   Morinth = _auto()
-
-  def lt(self) -> Ally:
-    """Returns an Ally representing all allies "less than" this Ally.
-    
-    This is particularly useful for reducing restart iterations, even for
-    combinations, since they are guaranteed to be in sorted order.
-    """
-    return Ally(_mtz(self.value))
-
-  def index(self) -> int:
-    """Returns the index (ordinal value) of this Ally's LSB.
-    
-    Indices start from 1. An index of zero means the Ally is empty.
-    """
-    return _ffs(self.value) + 1
-
-  def indices(self) -> Generator[int, None, None]:
-    """Generates Ally enumeration member indices from this Ally.
-    
-    Indices start from 1.
-    """
-    return (i + 1 for i in _bit_indices(self.value))
 
   def __len__(self) -> int:
     """Counts the number of allies represented by this Ally."""

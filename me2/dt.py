@@ -1,14 +1,15 @@
 from __future__ import annotations
 from enum import Enum as _Enum, auto as _auto
 from functools import reduce as _reduce
-from itertools import combinations as _combinations
+from itertools import combinations as _combos
 from operator import or_ as _or_
 from pickle import Pickler as _Pickler, Unpickler as _Unpickler
 from signal import SIGINT, signal as _signal
 from typing import Any, Optional, TYPE_CHECKING, TypeVar
 
 from .ally import *
-from .bits import fsb as _fsb
+from .bits import bits as _bits, ffs as _ffs, fsb as _fsb, mtz as _mtz
+from .bits import popcount as _popcount
 from .death import *
 from .encdec import Decoder as _Decoder, Encoder as _Encoder
 from .encdec import decode_outcome as _decode_outcome
@@ -130,9 +131,9 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
 # for type-checking to avoid "unfair" errors.
 if TYPE_CHECKING:
   class MutableTeam:
-    active = REQUIRED
-    dead = NOBODY
-    spared = NOBODY
+    active = REQUIRED.value
+    dead = 0
+    spared = 0
   _TeamBase = MutableTeam
 else:
   _TeamBase = object
@@ -145,8 +146,10 @@ class Team(_TeamBase):
   """
   __slots__ = ['active', 'dead', 'spared']
 
-  def __init__(self, active: Ally = REQUIRED, dead: Ally = NOBODY,
-               spared: Ally = NOBODY) -> None:
+  def __init__(self,
+               active: int = REQUIRED.value,
+               dead: int = 0,
+               spared: int = 0) -> None:
     """Initializes team state."""
     super().__setattr__('active', active)
     super().__setattr__('dead', dead)
@@ -155,27 +158,27 @@ class Team(_TeamBase):
   def __setattr__(self, name: str, value: Any) -> None:
     raise TypeError("'Team' object does not support attribute assignment")
   
-  def kill(self, ally: Ally) -> Team:
+  def kill(self, ally: int) -> Team:
     """Returns a new Team where the specified ally is dead."""
     return Team(self.active & ~ally, self.dead | ally, self.spared)
 
-  def spare(self, ally: Ally) -> Team:
+  def spare(self, ally: int) -> Team:
     """Returns a new Team where the specified ally is spared."""
     return Team(self.active & ~ally, self.dead, self.spared | ally)
 
-  def kill_and_spare_active(self, ally: Ally) -> Team:
+  def kill_and_spare_active(self, ally: int) -> Team:
     """Returns a new Team where the specified ally is dead and all active allies
     are spared."""
-    return Team(NOBODY, self.dead | ally, self.spared | (self.active & ~ally))
+    return Team(0, self.dead | ally, self.spared | (self.active & ~ally))
 
-  def recruit(self, ally: Ally) -> Team:
+  def recruit(self, ally: int) -> Team:
     """Returns a new Team where the specified ally is active."""
     active = self.active | ally
     dead = self.dead
     # To add Morinth to the team, Samara must be dead.
-    if Ally.Morinth & ally:
-      active &= ~Ally.Samara
-      dead |= Ally.Samara
+    if Ally.Morinth.value & ally:
+      active &= ~Ally.Samara.value
+      dead |= Ally.Samara.value
     return Team(active, dead, self.spared)
 
 
@@ -229,7 +232,7 @@ class DecisionTree:
     if not file_path:
       raise ValueError('A decision tree file path must be provided')
     self.file_path = file_path
-    self.loyal = NOBODY
+    self.loyal = 0
     self.memo: dict[str, Any] = {}
     self.outcomes: dict[int, tuple[int, int]] = {}
     self.pausing = False
@@ -252,32 +255,32 @@ class DecisionTree:
       spared = team.spared,
       dead = team.dead,
       loyalty = team.spared & self.loyal,
-      crew = self.get_memo(MemoKey.CREW, False)
+      crew = self.memo.get(MemoKey.CREW.name, False)
     )
 
     # The bit-width of the encoded traversal is variable. (min, max) = (40, 59)
     encoder = _Encoder()
     encoder.encode_ally_loyalty(self.loyal & (team.spared | team.dead))
-    encoder.encode_bool(self.get_memo(MemoKey.ARMOR, True))
-    encoder.encode_bool((shield := self.get_memo(MemoKey.SHIELD, True)))
-    encoder.encode_bool(self.get_memo(MemoKey.WEAPON, True))
+    encoder.encode_bool(self.memo.get(MemoKey.ARMOR.name, True))
+    encoder.encode_bool((shield := self.memo.get(MemoKey.SHIELD.name, True)))
+    encoder.encode_bool(self.memo.get(MemoKey.WEAPON.name, True))
     if not shield:
       # This cache key is mandatory if the shield is not upgraded.
       encoder.encode_choices(self.cache[CacheKey.CARGO_BAY_PICKS])
-    encoder.encode_ally_index(Ally(self.memo[MemoKey.TECH.name]))
-    leader1: Optional[bool] = self.get_memo(MemoKey.LEADER1, None)
+    encoder.encode_ally_index(_ffs(self.memo[MemoKey.TECH.name]) + 1)
+    leader1: Optional[bool] = self.memo.get(MemoKey.LEADER1.name, None)
     if leader1 is not None:
       encoder.encode_bool(leader1)
-    encoder.encode_ally_index(Ally(self.memo[MemoKey.BIOTIC.name]))
-    encoder.encode_ally_index(Ally(self.memo[MemoKey.LEADER2.name]))
-    encoder.encode_ally_index(self.get_memo(MemoKey.ESCORT, NOBODY))
-    walk_unpick = self.get_memo(MemoKey.WALK_UNPICK, None) is not None
+    encoder.encode_ally_index(_ffs(self.memo[MemoKey.BIOTIC.name]) + 1)
+    encoder.encode_ally_index(_ffs(self.memo[MemoKey.LEADER2.name]) + 1)
+    encoder.encode_ally_index(_ffs(self.memo.get(MemoKey.ESCORT.name, 0)) + 1)
+    walk_unpick = self.memo.get(MemoKey.WALK_UNPICK.name, None) is not None
     encoder.encode_bool(walk_unpick)
     if walk_unpick:
       # This cache key is mandatory if the biotic is not loyal and ideal and a
       # meaningful squad selection is possible.
       encoder.encode_choices(self.cache[CacheKey.LONG_WALK_UNPICKS])
-    encoder.encode_squad(self.get_memo(MemoKey.FINAL_SQUAD, NOBODY))
+    encoder.encode_squad(self.memo.get(MemoKey.FINAL_SQUAD.name, 0))
     traversal = encoder.result
     
     # Replace the outcome tuple.
@@ -291,17 +294,6 @@ class DecisionTree:
   # following methods, their names are stored as the keys for optimal pickling.
   #
 
-  def get_memo(self, key: MemoKey, default: _T) -> _T:
-    """Gets the value of the requested memo key."""
-    # Ally values are stored in the memo as integers, so this check makes their
-    # retrieval less annoying and error-prone.
-    if isinstance(default, Ally):
-      # FIXME: Although Pylance can detect that the type of default is Ally in
-      # the next statement, mypy does not seem to think that _T == Ally.
-      # See https://github.com/python/mypy/issues/10003.
-      return Ally(self.memo.get(key.name, default.value))  # type: ignore
-    return self.memo.get(key.name, default)
-
   def read_memo(self, key: MemoKey, default: _T) -> _T:
     """Gets the value of the requested memo key on the first call.
     
@@ -310,12 +302,12 @@ class DecisionTree:
     if key in self.spent_memo_keys:
       return default
     self.spent_memo_keys.add(key)
-    return self.get_memo(key, default)
+    return self.memo.get(key.name, default)
   
   def write_memo(self, key: MemoKey, value: Any) -> None:
     """Sets the value for the requested memo key and checks if the user
     requested a pause."""
-    self.memo[key.name] = value.value if isinstance(value, Ally) else value
+    self.memo[key.name] = value
     if self.pausing:
       raise _DecisionTreePauseException()
 
@@ -350,12 +342,12 @@ class DecisionTree:
 
   def is_complete(self) -> bool:
     """Checks if the decision tree has exhausted all possible traversals."""
-    return self.get_memo(MemoKey.N_OPT, None) == 0
+    return self.memo.get(MemoKey.N_OPT.name, None) == 0
 
   def generate(self) -> None:
     """Generates decision tree outcomes."""
     # Pressing Ctrl-C gracefully pauses the operation.
-    def handle_sigint(*args) -> None:
+    def handle_sigint(*_) -> None:
       self.pausing = True
     sigint_handler = _signal(SIGINT, handle_sigint)
     try:
@@ -384,12 +376,13 @@ class DecisionTree:
 
   def choose_recruits(self, n: int) -> None:
     # Iterate through all possible combinations of optional recruitment.
-    memo_recruits = self.read_memo(MemoKey.RECRUITS, NOBODY)
-    for recruits_tuple in _combinations(RECRUITABLE & ~memo_recruits.lt(), n):
-      recruits: Ally = _reduce(_or_, recruits_tuple)
+    memo_recruits = self.read_memo(MemoKey.RECRUITS, 0)
+    remaining_recruits = RECRUITABLE.value & ~_mtz(memo_recruits)
+    for recruits_tuple in _combos(_bits(remaining_recruits), n):
+      recruits: int = _reduce(_or_, recruits_tuple)
       if memo_recruits and recruits != memo_recruits:
         continue
-      memo_recruits = NOBODY
+      memo_recruits = 0
       self.write_memo(MemoKey.RECRUITS, recruits)
       self.choose_loyalty_missions(Team().recruit(recruits))
     self.clear_memo(MemoKey.RECRUITS)
@@ -398,10 +391,10 @@ class DecisionTree:
     # Iterate through all relevant loyalty mappings. Morinth is always loyal.
     loyalty = self.read_memo(MemoKey.LOYALTY, Ally.Morinth.value)
     while loyalty <= EVERYONE.value:
-      self.loyal = Ally(loyalty)
+      self.loyal = loyalty
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
-      if self.loyal & LOYALTY_MASK & ~team.active:
+      if self.loyal & LOYALTY_MASK.value & ~team.active:
         loyalty += _fsb(loyalty)
         continue
       self.write_memo(MemoKey.LOYALTY, loyalty)
@@ -415,9 +408,9 @@ class DecisionTree:
       self.choose_armor_upgrade(team)
     # If Samara was recruited and loyal, re-run with Morinth instead.
     # Recruiting Morinth always kills Samara.
-    if Ally.Samara & team.active & self.loyal:
+    if Ally.Samara.value & team.active & self.loyal:
       self.write_memo(MemoKey.MORINTH, True)
-      self.choose_armor_upgrade(team.recruit(Ally.Morinth))
+      self.choose_armor_upgrade(team.recruit(Ally.Morinth.value))
     self.clear_memo(MemoKey.MORINTH)
 
   def choose_armor_upgrade(self, team: Team) -> None:
@@ -446,7 +439,7 @@ class DecisionTree:
     # If you do *not* pick the #1 victim, they will die. If you pick the #1
     # victim but not the #2 victim, the #2 victim will die. If you pick both,
     # the #3 victim will die. Therefore, there are only three possible victims.
-    picks: list[Ally] = []
+    picks: list[int] = []
     for pick in range(3):
       victim = get_victim(pool, DP_NO_SHIELD_UPGRADE)
       picks.append(victim)
@@ -462,7 +455,7 @@ class DecisionTree:
 
   def choose_weapon_upgrade(self, team: Team) -> None:
     # This is a reasonable place to perform a periodic save. Based on rough
-    # timing, this method is called approximately every 16 seconds or so. This
+    # timing, this method is called approximately every 20 seconds or so. This
     # is not so frequent as to wear out the disk, and it is not so infrequent
     # that an unexpected shutdown would lose a lot of progress.
     self.save()
@@ -478,21 +471,21 @@ class DecisionTree:
   
   def choose_tech(self, team: Team) -> None:
     # Iterate through all selectable teammates for the tech specialist.
-    cur_tech = self.read_memo(MemoKey.TECH, NOBODY)
-    for tech in team.active & ~cur_tech.lt():
+    cur_tech = self.read_memo(MemoKey.TECH, 0)
+    for tech in _bits(team.active & ~_mtz(cur_tech)):
       self.write_memo(MemoKey.TECH, tech)
       # If the tech specialist is loyal and ideal, their survival depends on the
       # first fireteam leader.
-      if tech & self.loyal & IDEAL_TECHS:
+      if tech & self.loyal & IDEAL_TECHS.value:
         self.choose_first_leader(team, tech)
       else:
         # Otherwise, they will die. The first fireteam leader does not matter.
         self.choose_biotic(team.kill(tech))
     self.clear_memo(MemoKey.TECH)
 
-  def choose_first_leader(self, team: Team, tech: Ally) -> None:
+  def choose_first_leader(self, team: Team, tech: int) -> None:
     # Check if we have any ideal leaders.
-    ideal_leaders = team.active & ~tech & self.loyal & IDEAL_LEADERS
+    ideal_leaders = team.active & ~tech & self.loyal & IDEAL_LEADERS.value
     if self.read_memo(MemoKey.LEADER1, bool(ideal_leaders)):
       self.write_memo(MemoKey.LEADER1, True)
       # If the leader is loyal and ideal, the tech will be spared.
@@ -504,21 +497,21 @@ class DecisionTree:
 
   def choose_biotic(self, team: Team) -> None:
     # Iterate through all selectable teammates for the biotic specialist.
-    cur_biotic = self.read_memo(MemoKey.BIOTIC, NOBODY)
-    for biotic in team.active & BIOTICS & ~cur_biotic.lt():
+    cur_biotic = self.read_memo(MemoKey.BIOTIC, 0)
+    for biotic in _bits(team.active & BIOTICS.value & ~_mtz(cur_biotic)):
       self.write_memo(MemoKey.BIOTIC, biotic)
       self.choose_second_leader(team, biotic)
     self.clear_memo(MemoKey.BIOTIC)
 
-  def choose_second_leader(self, team: Team, biotic: Ally) -> None:
+  def choose_second_leader(self, team: Team, biotic: int) -> None:
     # Iterate through all selectable teammates for the second fireteam leader.
-    cur_leader = self.read_memo(MemoKey.LEADER2, NOBODY)
-    for leader in team.active & ~(biotic | cur_leader.lt()):
+    cur_leader = self.read_memo(MemoKey.LEADER2, 0)
+    for leader in _bits(team.active & ~(biotic | _mtz(cur_leader))):
       self.write_memo(MemoKey.LEADER2, leader)
       self.choose_save_the_crew(team, biotic, leader)
     self.clear_memo(MemoKey.LEADER2)
   
-  def choose_save_the_crew(self, team: Team, biotic: Ally, leader: Ally) -> None:
+  def choose_save_the_crew(self, team: Team, biotic: int, leader: int) -> None:
     #
     # FIXME: I have been unable to confirm if an escort can even be selected if
     # there are only four teammates (the minimum possible) remaining at the end
@@ -531,38 +524,40 @@ class DecisionTree:
     # Escorting the crew is optional, if you can spare them.
     if not self.read_memo(MemoKey.CREW, False):
       self.choose_walk_squad(team, biotic, leader)
-    if len(team.active) > 4:
+    if _popcount(team.active) > 4:
       # Escorting the crew will save them.
       self.write_memo(MemoKey.CREW, True)
       self.choose_escort(team, biotic, leader)
     self.clear_memo(MemoKey.CREW)
 
-  def choose_escort(self, team: Team, biotic: Ally, leader: Ally) -> None:
-    # If an escort is selected, they will survive if they are loyal. Otherwise,
-    # they will die.
-    cur_escort = self.read_memo(MemoKey.ESCORT, NOBODY)
-    for escort in team.active & ESCORTS & ~(biotic | leader | cur_escort.lt()):
+  def choose_escort(self, team: Team, biotic: int, leader: int) -> None:
+    # If an escort is selected, they will be spared if they are loyal.
+    # Otherwise, they will die.
+    cur_escort = self.read_memo(MemoKey.ESCORT, 0)
+    remaining_escorts = team.active & ESCORTS.value
+    remaining_escorts &= ~(biotic | leader | _mtz(cur_escort))
+    for escort in _bits(remaining_escorts):
       self.write_memo(MemoKey.ESCORT, escort)
       t = team.spare(escort) if escort & self.loyal else team.kill(escort)
       self.choose_walk_squad(t, biotic, leader)
     self.clear_memo(MemoKey.ESCORT)
   
-  def choose_walk_squad(self, team: Team, biotic: Ally, leader: Ally) -> None:
+  def choose_walk_squad(self, team: Team, biotic: int, leader: int) -> None:
     # If the biotic specialist is loyal and ideal, they will not get anyone on
     # your squad killed, so the squad choice does not matter.
-    if biotic & self.loyal & IDEAL_BIOTICS:
+    if biotic & self.loyal & IDEAL_BIOTICS.value:
       return self.choose_final_squad(team, leader)
     # If your team is too small to merit a meaningful squad selection, there is
     # only one possible outcome.
     pool = team.active & ~(biotic | leader)
-    if len(pool) < 3:
+    if _popcount(pool) < 3:
       victim = get_victim(pool, DP_THE_LONG_WALK)
       return self.choose_final_squad(team.kill(victim), leader)
     # Otherwise, you may be able to affect who the victim is through your squad
     # selection.
     memo_unpick = self.read_memo(MemoKey.WALK_UNPICK, 0)
     self.cache[CacheKey.LONG_WALK_UNPICKS] = (unpicks := [])
-    for unpick in range(min(len(pool) - 1, 3)):
+    for unpick in range(min(_popcount(pool) - 1, 3)):
       victim = get_victim(pool, DP_THE_LONG_WALK)
       unpicks.append(victim)
       if unpick >= memo_unpick:
@@ -574,28 +569,28 @@ class DecisionTree:
     self.cache.pop(CacheKey.LONG_WALK_UNPICKS, None)
     self.clear_memo(MemoKey.WALK_UNPICK)
 
-  def choose_final_squad(self, team: Team, leader: Ally) -> None:
+  def choose_final_squad(self, team: Team, leader: int) -> None:
     # The leader of the second fireteam will not die under several conditions:
     # 1. They are loyal and ideal
     # 2. They are special-cased (Miranda)
     # 3. There are fewer than four active teammates (including the leader).
-    alive = bool(leader & self.loyal & IDEAL_LEADERS)
-    alive = alive or bool(leader & IMMORTAL_LEADERS) or len(team.active) < 4
-    if not alive:
+    alive = bool(leader & self.loyal & IDEAL_LEADERS.value)
+    alive = alive or bool(leader & IMMORTAL_LEADERS.value)
+    if not (alive or _popcount(team.active) < 4):
       team = team.kill(leader)
     # Iterate through all possible final squads.
-    memo_squad = self.read_memo(MemoKey.FINAL_SQUAD, NOBODY)
-    for squad_tuple in _combinations(team.active & ~memo_squad.lt(), 2):
-      squad: Ally = _reduce(_or_, squad_tuple)
+    memo_squad = self.read_memo(MemoKey.FINAL_SQUAD, 0)
+    for squad_tuple in _combos(_bits(team.active & ~_mtz(memo_squad)), 2):
+      squad: int = _reduce(_or_, squad_tuple)
       if memo_squad and squad != memo_squad:
         continue
-      memo_squad = NOBODY
+      memo_squad = 0
       self.write_memo(MemoKey.FINAL_SQUAD, squad)
       # The remaining active teammates form the defense team.
       defense_team = team.active & ~squad
       death_toll = get_defense_toll(defense_team, self.loyal)
-      victims = NOBODY
-      for index in range(death_toll):
+      victims = 0
+      for _ in range(death_toll):
         victims |= get_defense_victim(defense_team & ~victims, self.loyal)
       # Any member of your squad that is not loyal will die.
       victims |= squad & ~self.loyal

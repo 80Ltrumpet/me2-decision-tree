@@ -1,15 +1,17 @@
-from typing import Any, Union
+from typing import Any
 
-from .ally import Ally as _Ally, LOYALTY_MASK as _LOYALTY_MASK
-from .ally import NOBODY as _NOBODY, OPTIONAL as _OPTIONAL
-from .ally import REQUIRED as _REQUIRED
-from .bits import ffs as _ffs, mask as _mask
+from .ally import Ally as _Ally, EVERYONE as _EVERYONE
+from .ally import LOYALTY_MASK as _LOYALTY_MASK, NOBODY as _NOBODY
+from .ally import OPTIONAL as _OPTIONAL, REQUIRED as _REQUIRED
+from .bits import bit_indices as _bit_indices, ffs as _ffs, mask as _mask
+from .bits import popcount as _popcount
 
 _ALLY_LEN = len(_Ally)
-_ALLY_LOYALTY_LEN = len(_LOYALTY_MASK)
-_ALLY_OPTIONAL_LEN = len(_OPTIONAL)
+_ALLY_LOYALTY_LEN = _popcount(_LOYALTY_MASK.value)
+_ALLY_OPTIONAL_LEN = _popcount(_OPTIONAL.value)
 _ALLY_OPTIONAL_SHIFT = _ffs(_OPTIONAL.value)
 _ALLY_INDEX_LEN = _ALLY_LEN.bit_length()
+_ALLY_INDEX_MASK = _mask(_ALLY_INDEX_LEN)
 
 class Encoder:
   """Facilitates bit-packing various types in a variable sequence."""
@@ -26,56 +28,55 @@ class Encoder:
     """Encodes a bool as a single bit."""
     self._append(value, 1)
 
-  def encode_ally(self, ally: _Ally) -> None:
-    """Encodes an Ally's value.
+  def encode_ally(self, ally: int) -> None:
+    """Encodes an integer as an Ally's value.
     
     For Ally enumeration members, see encode_ally_index().
     """
-    self._append(ally.value, _ALLY_LEN)
+    self._append(ally & _EVERYONE.value, _ALLY_LEN)
 
-  def encode_ally_loyalty(self, loyalty: _Ally) -> None:
-    """Encodes an Ally's value masked by LOYALTY_MASK."""
-    self._append(loyalty.value, _ALLY_LOYALTY_LEN)
+  def encode_ally_loyalty(self, loyalty: int) -> None:
+    """Encodes an integer masked by LOYALTY_MASK."""
+    self._append(loyalty & _LOYALTY_MASK.value, _ALLY_LOYALTY_LEN)
 
-  def encode_ally_optional(self, ally: _Ally) -> None:
-    """Encodes an Ally's value masked by OPTIONAL."""
-    self._append((ally & _OPTIONAL).value >> _ALLY_OPTIONAL_SHIFT,
+  def encode_ally_optional(self, ally: int) -> None:
+    """Encodes an integer masked by OPTIONAL."""
+    self._append((ally & _OPTIONAL.value) >> _ALLY_OPTIONAL_SHIFT,
                   _ALLY_OPTIONAL_LEN)
 
-  def encode_ally_index(self, index: Union[_Ally, int]) -> None:
-    """Encodes an Ally's index starting from 1.
+  def encode_ally_index(self, index: int) -> None:
+    """Encodes a four-bit integer representing the 1-based index of an Ally.
 
-    This requires fewer bits than encode_ally().
+    The caller must provide a valid index. This requires fewer bits than
+    encode_ally().
     """
-    if isinstance(index, _Ally):
-      index = index.index()
-    self._append(index, _ALLY_INDEX_LEN)
+    self._append(index & _ALLY_INDEX_MASK, _ALLY_INDEX_LEN)
 
-  def encode_squad(self, squad: _Ally) -> None:
+  def encode_squad(self, squad: int) -> None:
     """Encodes two Ally indices based on the given squad.
     
     If squad does not contain exactly two set bits, raises a ValueError.
     """
-    i = 0
-    for i, index in enumerate(squad.indices()):
-      if i >= 2:
-        raise ValueError(f'Too many squadmates: {squad}')
-      self.encode_ally_index(index)
-    if i != 1:
-      raise ValueError(f'Not a full squad: {squad}')
+    i = 1
+    for i, index in enumerate(_bit_indices(squad), 1):
+      if i > 2:
+        raise ValueError(f'Too many squadmates: {_Ally(squad)}')
+      self.encode_ally_index(index + 1)
+    if i != 2:
+      raise ValueError(f'Not a full squad: {_Ally(squad)}')
 
-  def encode_choices(self, choices: list[_Ally]) -> None:
+  def encode_choices(self, choices: list[int]) -> None:
     """Encodes two Ally indices with a preceding bit indicating whether the
     last non-zero index should be treated as an opposite choice.
     
     The semantics of this value and the phrase "opposite choice" are
     context-dependent.
     """
-    first_choice = choices[0] if choices and choices[0] else _NOBODY
-    second_choice = choices[1] if first_choice and len(choices) > 1 else _NOBODY
+    first_choice = choices[0] if choices and choices[0] else 0
+    second_choice = choices[1] if first_choice and len(choices) > 1 else 0
     self.encode_bool(len(choices) < 3)
-    self.encode_ally_index(first_choice)
-    self.encode_ally_index(second_choice)
+    self.encode_ally_index(_ffs(first_choice) + 1)
+    self.encode_ally_index(_ffs(second_choice) + 1)
 
 
 def encode_outcome(**outcome) -> int:
@@ -135,7 +136,7 @@ class Decoder:
     """
     invert_last = self.decode_bool()
     choices = []
-    for i in range(2):
+    for _ in range(2):
       choice = self.decode_ally_index()
       if choice:
         choices.append(choice)

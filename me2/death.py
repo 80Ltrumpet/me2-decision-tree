@@ -1,7 +1,7 @@
 from statistics import fmean as _fmean
 from typing import Callable
 
-from .bits import popcount as _popcount
+from .bits import bits as _bits, popcount as _popcount
 from .ally import Ally as _Ally
 
 #
@@ -12,39 +12,39 @@ from .ally import Ally as _Ally
 # death when certain conditions are met.
 
 # The "Silaris Armor" upgrade was not purchased.
-DP_NO_ARMOR_UPGRADE = [_Ally.Jack]
+DP_NO_ARMOR_UPGRADE = [_Ally.Jack.value]
 
 # The "Cyclonic Shields" upgrade was not purchased.
 DP_NO_SHIELD_UPGRADE = [
-  _Ally.Kasumi, _Ally.Legion, _Ally.Tali, _Ally.Thane,
-  _Ally.Garrus, _Ally.Zaeed, _Ally.Grunt, _Ally.Samara,
-  _Ally.Morinth
+  _Ally.Kasumi.value, _Ally.Legion.value, _Ally.Tali.value, _Ally.Thane.value,
+  _Ally.Garrus.value, _Ally.Zaeed.value, _Ally.Grunt.value, _Ally.Samara.value,
+  _Ally.Morinth.value
 ]
 
 # The "Thanix Cannon" upgrade was not purchased.
 DP_NO_WEAPON_UPGRADE = [
-  _Ally.Thane, _Ally.Garrus, _Ally.Zaeed, _Ally.Grunt,
-  _Ally.Jack, _Ally.Samara, _Ally.Morinth
+  _Ally.Thane.value, _Ally.Garrus.value, _Ally.Zaeed.value, _Ally.Grunt.value,
+  _Ally.Jack.value, _Ally.Samara.value, _Ally.Morinth.value
 ]
 
 # Chose a disloyal or non-specialist biotic for The Long Walk.
 DP_THE_LONG_WALK = [
-  _Ally.Thane, _Ally.Jack, _Ally.Garrus, _Ally.Legion,
-  _Ally.Grunt, _Ally.Samara, _Ally.Jacob, _Ally.Mordin,
-  _Ally.Tali, _Ally.Kasumi, _Ally.Zaeed, _Ally.Morinth
+  _Ally.Thane.value, _Ally.Jack.value, _Ally.Garrus.value, _Ally.Legion.value,
+  _Ally.Grunt.value, _Ally.Samara.value, _Ally.Jacob.value, _Ally.Mordin.value,
+  _Ally.Tali.value, _Ally.Kasumi.value, _Ally.Zaeed.value, _Ally.Morinth.value
 ]
 
 # The average defense score is too low for the defending allies during the final
 # battle. Unlike the other death priority lists, non-loyal allies are
 # prioritized above loyal allies (see get_defense_victim()).
 _DP_DEFENSE = [
-  _Ally.Mordin, _Ally.Tali, _Ally.Kasumi, _Ally.Jack,
-  _Ally.Miranda, _Ally.Jacob, _Ally.Garrus, _Ally.Samara,
-  _Ally.Morinth, _Ally.Legion, _Ally.Thane, _Ally.Zaeed,
-  _Ally.Grunt
+  _Ally.Mordin.value, _Ally.Tali.value, _Ally.Kasumi.value, _Ally.Jack.value,
+  _Ally.Miranda.value, _Ally.Jacob.value, _Ally.Garrus.value, _Ally.Samara.value,
+  _Ally.Morinth.value, _Ally.Legion.value, _Ally.Thane.value, _Ally.Zaeed.value,
+  _Ally.Grunt.value
 ]
 
-def get_victim(team: _Ally, priority: list[_Ally]) -> _Ally:
+def get_victim(team: int, priority: list[int]) -> int:
   """Selects the teammate who should die based on the given priority."""
   for ally in priority:
     if ally & team:
@@ -53,7 +53,7 @@ def get_victim(team: _Ally, priority: list[_Ally]) -> _Ally:
   # are in the priority list.
   raise RuntimeError("No victim")
 
-def get_defense_victim(defense_team: _Ally, loyal: _Ally) -> _Ally:
+def get_defense_victim(defense_team: int, loyal: int) -> int:
   """Selects the defending teammate who should die."""
   # If everyone is loyal, this is the same as get_victim().
   if defense_team == defense_team & loyal:
@@ -72,19 +72,19 @@ def get_defense_victim(defense_team: _Ally, loyal: _Ally) -> _Ally:
 # assigned defense scores according to their "innate defensiveness". If an ally
 # is disloyal, their score is decreased by 1 (see get_defense_toll()).
 _DEFENSE_SCORE = {
-  _Ally.Garrus: 4,
-  _Ally.Grunt: 4,
-  _Ally.Jack: 1,
-  _Ally.Jacob: 2,
-  _Ally.Kasumi: 1,
-  _Ally.Legion: 2,
-  _Ally.Miranda: 2,
-  _Ally.Mordin: 1,
-  _Ally.Samara: 2,
-  _Ally.Tali: 1,
-  _Ally.Thane: 2,
-  _Ally.Zaeed: 4,
-  _Ally.Morinth: 2
+  _Ally.Garrus.value: 4,
+  _Ally.Grunt.value: 4,
+  _Ally.Jack.value: 1,
+  _Ally.Jacob.value: 2,
+  _Ally.Kasumi.value: 1,
+  _Ally.Legion.value: 2,
+  _Ally.Miranda.value: 2,
+  _Ally.Mordin.value: 1,
+  _Ally.Samara.value: 2,
+  _Ally.Tali.value: 1,
+  _Ally.Thane.value: 2,
+  _Ally.Zaeed.value: 4,
+  _Ally.Morinth.value: 2
 }
 
 # Lookup table for the number of defending allies who will die according to the
@@ -99,12 +99,12 @@ _DEFENSE_TOLL_FORMULA: list[Callable[[float], int]] = [
   lambda x: 3 if x < 0.5 else 2 if x < 1.5 else 1 if x < 2 else 0
 ]
 
-def get_defense_toll(defense_team: _Ally, loyal: _Ally) -> int:
+def get_defense_toll(team: int, loyal: int) -> int:
   """Computes the death toll for the defense team."""
-  if not (team_size := len(defense_team)):
+  if not (team_size := _popcount(team)):
     raise ValueError('Zero defending allies')
   # Compute the average defense score. Disloyal allies' scores are reduced.
-  score = _fmean(_DEFENSE_SCORE[a] - bool(a & ~loyal) for a in defense_team)
+  score = _fmean(_DEFENSE_SCORE[a] - bool(a & ~loyal) for a in _bits(team))
   if team_size < len(_DEFENSE_TOLL_FORMULA):
     return _DEFENSE_TOLL_FORMULA[team_size](score)
   return _DEFENSE_TOLL_FORMULA[-1](score)
