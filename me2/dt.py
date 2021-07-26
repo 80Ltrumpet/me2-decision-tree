@@ -460,12 +460,6 @@ class DecisionTree:
     self.clear_memo(MemoKey.CB_PICK)
 
   def choose_weapon_upgrade(self, team: Team) -> None:
-    # This is a reasonable place to perform a periodic save. Based on rough
-    # timing, this method is called approximately every 20 seconds or so. This
-    # is not so frequent as to wear out the disk, and it is not so infrequent
-    # that an unexpected shutdown would lose a lot of progress.
-    self.save()
-
     # If you upgrade to the Thanix Cannon, no one dies.
     if self.read_memo(MemoKey.WEAPON, True):
       self.choose_tech(team)
