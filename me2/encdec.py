@@ -1,8 +1,9 @@
 from typing import Any
 
-from .ally import Ally as _Ally, EVERYONE as _EVERYONE
-from .ally import LOYALTY_MASK as _LOYALTY_MASK, NOBODY as _NOBODY
-from .ally import OPTIONAL as _OPTIONAL, REQUIRED as _REQUIRED
+from .ally import Ally as _Ally, EVERYONE as _EVERYONE, IDEAL_LEADERS
+from .ally import IDEAL_LEADERS as _IDEAL_LEADERS, LOYALTY_MASK as _LOYALTY_MASK
+from .ally import NOBODY as _NOBODY, OPTIONAL as _OPTIONAL
+from .ally import REQUIRED as _REQUIRED
 from .bits import bit_indices as _bit_indices, ffs as _ffs, mask as _mask
 from .bits import popcount as _popcount
 
@@ -12,6 +13,7 @@ _ALLY_OPTIONAL_LEN = _popcount(_OPTIONAL.value)
 _ALLY_OPTIONAL_SHIFT = _ffs(_OPTIONAL.value)
 _ALLY_INDEX_LEN = _ALLY_LEN.bit_length()
 _ALLY_INDEX_MASK = _mask(_ALLY_INDEX_LEN)
+_IDEAL_LEADERS_LEN = _popcount(_IDEAL_LEADERS.value)
 
 class Encoder:
   """Facilitates bit-packing various types in a variable sequence."""
@@ -51,6 +53,10 @@ class Encoder:
     encode_ally().
     """
     self._append(index & _ALLY_INDEX_MASK, _ALLY_INDEX_LEN)
+  
+  def encode_ideal_leaders(self, leaders: int) -> None:
+    """Encodes available, loyal, ideal leaders as a three-bit quantity."""
+    self._append(leaders & IDEAL_LEADERS.value, _IDEAL_LEADERS_LEN)
 
   def encode_squad(self, squad: int) -> None:
     """Encodes two Ally indices based on the given squad.
@@ -121,6 +127,10 @@ class Decoder:
     """Decodes an index as an Ally."""
     index = self._shift(_ALLY_INDEX_LEN)
     return _Ally(1 << (index - 1)) if index > 0 else _NOBODY
+
+  def decode_ideal_leaders(self) -> _Ally:
+    """Decodes a compound Ally masked by IDEAL_LEADERS."""
+    return _Ally(self._shift(_IDEAL_LEADERS_LEN))
 
   def decode_squad(self) -> _Ally:
     """Decodes two indices as a compound Ally."""

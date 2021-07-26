@@ -50,6 +50,7 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
   has_leader1 = bool(tech & loyal & IDEAL_TECHS)
   if has_leader1:
     leader1 = decoder.decode_bool()
+    ideal_leaders = decoder.decode_ideal_leaders()
   biotic = decoder.decode_ally_index()
   leader2 = decoder.decode_ally_index()
   escort = decoder.decode_ally_index()
@@ -98,13 +99,15 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
   
   output += f'Choose {tech} as the tech specialist'
   if has_leader1:
-    leader_desc = 'an ideal' if leader1 else 'a non-ideal'
-    output += f', and choose {leader_desc} fireteam leader.\n'
+    output += ', and choose '
+    if not leader1:
+      output += 'anyone except '
+    output += f'{ideal_leaders.conj("or")} to lead the second fireteam.\n'
   else:
-    output += '. The first fireteam leader does not matter.\n'
+    output += '. The second fireteam leader does not matter.\n'
 
   output += f'Choose {biotic} as the biotic specialist '
-  output += f'and {leader2} as the second fireteam leader.\n'
+  output += f'and {leader2} to lead the diversion team.\n'
   if escort:
     output += f'Send {escort} to escort the crew.\n'
   else:
@@ -203,6 +206,7 @@ class MemoKey(_Enum):
 
 class CacheKey(_Enum):
   CARGO_BAY_PICKS = _auto()
+  IDEAL_LEADERS = _auto()
   LONG_WALK_UNPICKS = _auto()
 
 
@@ -258,7 +262,7 @@ class DecisionTree:
       crew = self.memo.get(MemoKey.CREW.name, False)
     )
 
-    # The bit-width of the encoded traversal is variable. (min, max) = (40, 59)
+    # The bit-width of the encoded traversal is variable. (min, max) = (40, 62)
     encoder = _Encoder()
     encoder.encode_ally_loyalty(self.loyal & (team.spared | team.dead))
     encoder.encode_bool(self.memo.get(MemoKey.ARMOR.name, True))
@@ -271,6 +275,8 @@ class DecisionTree:
     leader1: Optional[bool] = self.memo.get(MemoKey.LEADER1.name, None)
     if leader1 is not None:
       encoder.encode_bool(leader1)
+      # This cache key is mandatory if an ideal leader is selected.
+      encoder.encode_ideal_leaders(self.cache[CacheKey.IDEAL_LEADERS])
     encoder.encode_ally_index(_ffs(self.memo[MemoKey.BIOTIC.name]) + 1)
     encoder.encode_ally_index(_ffs(self.memo[MemoKey.LEADER2.name]) + 1)
     encoder.encode_ally_index(_ffs(self.memo.get(MemoKey.ESCORT.name, 0)) + 1)
@@ -450,7 +456,7 @@ class DecisionTree:
       # Selecting the prioritized victim(s) for your squad removes them from the
       # victim pool.
       pool &= ~victim
-    self.cache.pop(CacheKey.CARGO_BAY_PICKS, None)
+    del self.cache[CacheKey.CARGO_BAY_PICKS]
     self.clear_memo(MemoKey.CB_PICK)
 
   def choose_weapon_upgrade(self, team: Team) -> None:
@@ -472,7 +478,7 @@ class DecisionTree:
   def choose_tech(self, team: Team) -> None:
     # Iterate through all selectable teammates for the tech specialist.
     cur_tech = self.read_memo(MemoKey.TECH, 0)
-    for tech in _bits(team.active & ~_mtz(cur_tech)):
+    for tech in _bits(team.active & TECHS.value & ~_mtz(cur_tech)):
       self.write_memo(MemoKey.TECH, tech)
       # If the tech specialist is loyal and ideal, their survival depends on the
       # first fireteam leader.
@@ -486,6 +492,7 @@ class DecisionTree:
   def choose_first_leader(self, team: Team, tech: int) -> None:
     # Check if we have any ideal leaders.
     ideal_leaders = team.active & ~tech & self.loyal & IDEAL_LEADERS.value
+    self.cache[CacheKey.IDEAL_LEADERS] = ideal_leaders
     if self.read_memo(MemoKey.LEADER1, bool(ideal_leaders)):
       self.write_memo(MemoKey.LEADER1, True)
       # If the leader is loyal and ideal, the tech will be spared.
@@ -493,6 +500,7 @@ class DecisionTree:
     # Otherwise, the tech will die.
     self.write_memo(MemoKey.LEADER1, False)
     self.choose_biotic(team.kill(tech))
+    del self.cache[CacheKey.IDEAL_LEADERS]
     self.clear_memo(MemoKey.LEADER1)
 
   def choose_biotic(self, team: Team) -> None:
@@ -512,16 +520,10 @@ class DecisionTree:
     self.clear_memo(MemoKey.LEADER2)
   
   def choose_save_the_crew(self, team: Team, biotic: int, leader: int) -> None:
-    #
-    # FIXME: I have been unable to confirm if an escort can even be selected if
-    # there are only four teammates (the minimum possible) remaining at the end
-    # of the Infiltration. My current theory is that this would be disallowed
-    # because it would leave only one for Shepard's squad. That is, an escort
-    # literally could not be spared for the mission. Because of this, I disallow
-    # it here.
-    #
-
     # Escorting the crew is optional, if you can spare them.
+    # NOTE: If only four teammates (the minimum possible) remain at this point,
+    # then an escort cannot be selected, since Shepard must have two squadmates
+    # for The Long Walk.
     if not self.read_memo(MemoKey.CREW, False):
       self.choose_walk_squad(team, biotic, leader)
     if _popcount(team.active) > 4:
@@ -566,7 +568,7 @@ class DecisionTree:
       # *Not* selecting the prioritized victim(s) removes them from the victim
       # pool.
       pool &= ~victim
-    self.cache.pop(CacheKey.LONG_WALK_UNPICKS, None)
+    del self.cache[CacheKey.LONG_WALK_UNPICKS]
     self.clear_memo(MemoKey.WALK_UNPICK)
 
   def choose_final_squad(self, team: Team, leader: int) -> None:

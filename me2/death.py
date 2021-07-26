@@ -4,12 +4,9 @@ from typing import Callable
 from .bits import bits as _bits, popcount as _popcount
 from .ally import Ally as _Ally
 
-#
-# Death Priorities
-#
-
 # The following lists indicate the order in which allies are selected for
 # death when certain conditions are met.
+# Reference: https://external-preview.redd.it/7SeMlQbU-xFC9TjKurncqx1y8NH3RJiolYRqFAoXfWg.jpg?auto=webp&s=a57ad480a357234ec7fa5f865b00b60b95670df0
 
 # The "Silaris Armor" upgrade was not purchased.
 DP_NO_ARMOR_UPGRADE = [_Ally.Jack.value]
@@ -63,10 +60,6 @@ def get_defense_victim(defense_team: int, loyal: int) -> int:
       return ally
   return get_victim(defense_team, _DP_DEFENSE)
 
-
-#
-# Defense Scoring
-#
 
 # Loyal allies who are left behind to defend during the final battle are
 # assigned defense scores according to their "innate defensiveness". If an ally
