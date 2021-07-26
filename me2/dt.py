@@ -14,6 +14,7 @@ from .death import *
 from .encdec import Decoder as _Decoder, Encoder as _Encoder
 from .encdec import decode_outcome as _decode_outcome
 from .encdec import encode_outcome as _encode_outcome
+from .util import PeriodicTimer
 
 def describe_outcome(encoded: int, *, full: bool = False) -> str:
   """Produces a human-readable string describing the encoded outcome.
@@ -218,6 +219,9 @@ class _DecisionTreePauseException(Exception):
 # Used for generic type annotations.
 _T = TypeVar('_T')
 
+# Interval in seconds between periodic saves.
+_SAVE_INTERVAL = 5 * 60
+
 class DecisionTree:
   """Generates outcomes and traversals for Mass Effect 2's suicide mission.
   
@@ -235,13 +239,14 @@ class DecisionTree:
     given file_path."""
     if not file_path:
       raise ValueError('A decision tree file path must be provided')
+    # Similar to the memo, but not persistent.
+    self.cache: dict[CacheKey, Any] = {}
     self.file_path = file_path
     self.loyal = 0
     self.memo: dict[str, Any] = {}
+    self.needs_save = False
     self.outcomes: dict[int, tuple[int, int]] = {}
     self.pausing = False
-    # Similar to the memo, but not persistent.
-    self.cache: dict[CacheKey, Any] = {}
     # Used for marking which keys from the memo have already been read.
     self.spent_memo_keys: set[MemoKey] = set()
     self.load()
@@ -312,10 +317,13 @@ class DecisionTree:
   
   def write_memo(self, key: MemoKey, value: Any) -> None:
     """Sets the value for the requested memo key and checks if the user
-    requested a pause."""
+    requested a pause or if a periodic save was requested."""
     self.memo[key.name] = value
     if self.pausing:
       raise _DecisionTreePauseException()
+    if self.needs_save:
+      self.save()
+      self.needs_save = False
 
   def clear_memo(self, key: MemoKey) -> None:
     """Deletes a key from the memo, whether or not it exists."""
@@ -352,6 +360,11 @@ class DecisionTree:
 
   def generate(self) -> None:
     """Generates decision tree outcomes."""
+    # Set up a timer to periodically save progress.
+    def request_save() -> None:
+      self.needs_save = True
+    saver = PeriodicTimer(_SAVE_INTERVAL, request_save)
+    saver.start()
     # Pressing Ctrl-C gracefully pauses the operation.
     def handle_sigint(*_) -> None:
       self.pausing = True
@@ -364,6 +377,7 @@ class DecisionTree:
       self.save()
     # Restore the original SIGINT handler.
     _signal(SIGINT, sigint_handler)
+    saver.cancel()
 
   #
   # Decision Methods
