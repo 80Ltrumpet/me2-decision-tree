@@ -21,7 +21,7 @@ class EncoderTest(unittest.TestCase):
   def test_encode_ally_loyalty(self):
     self.encoder.encode_ally_loyalty((Ally.Thane | Ally.Zaeed).value)
     self.encoder.encode_ally_loyalty((Ally.Jacob | Ally.Jack).value)
-    self.assertEqual(self.encoder.result, 0x006c00)
+    self.assertEqual(self.encoder.result, 0x00ac00)
 
   def test_encode_ally_optional(self):
     self.encoder.encode_ally_optional((Ally.Grunt | Ally.Mordin).value)
@@ -31,12 +31,12 @@ class EncoderTest(unittest.TestCase):
   def test_encode_ally_index(self):
     self.encoder.encode_ally_index(ffs(Ally.Samara.value) + 1)
     self.encoder.encode_ally_index(ffs(Ally.Miranda.value) + 1)
-    self.assertEqual(self.encoder.result, 0x49)
+    self.assertEqual(self.encoder.result, 0x39)
 
   def test_encode_squad(self):
     self.encoder.encode_squad((Ally.Garrus | Ally.Tali).value)
     self.encoder.encode_squad((Ally.Morinth | Ally.Jack).value)
-    self.assertEqual(self.encoder.result, 0xd2a1)
+    self.assertEqual(self.encoder.result, 0xd4a1)
 
   def test_encode_choices(self):
     self.encoder.encode_choices([])
@@ -45,7 +45,7 @@ class EncoderTest(unittest.TestCase):
     self.encoder.encode_choices([Ally.Thane.value,
                                  Ally.Miranda.value,
                                  Ally.Zaeed.value])
-    self.assertEqual(self.encoder.result, 0x4b2bc0e01)
+    self.assertEqual(self.encoder.result, 0x3b2bc0a01)
 
 
 class OutcomeEncoderTest(unittest.TestCase):
@@ -57,7 +57,7 @@ class OutcomeEncoderTest(unittest.TestCase):
       loyalty = (Ally.Grunt | Ally.Jacob).value,
       crew = True
     )
-    self.assertEqual(encoded_outcome, 0x204888424)
+    self.assertEqual(encoded_outcome, 0x204488422)
 
 
 class DecoderTest(unittest.TestCase):
@@ -88,8 +88,8 @@ class DecoderTest(unittest.TestCase):
 
   def test_decode_squad(self):
     decoder = Decoder(0xd346)
-    self.assertEqual(decoder.decode_squad(), Ally.Miranda | Ally.Grunt)
-    self.assertEqual(decoder.decode_squad(), Ally.Morinth | Ally.Jacob)
+    self.assertEqual(decoder.decode_squad(), Ally.Jack | Ally.Grunt)
+    self.assertEqual(decoder.decode_squad(), Ally.Morinth | Ally.Miranda)
 
   def test_decode_choices(self):
     decoder = Decoder(0x3640f)
@@ -102,10 +102,10 @@ class OutcomeDecoderTest(unittest.TestCase):
   def test_result(self):
     self.assertEqual(decode_outcome(0x2094020cb),
       {
-        'spared': Ally.Garrus | Ally.Jack | Ally.Kasumi | Ally.Legion | \
-                  Ally.Miranda,
-        'dead': Ally.Grunt | Ally.Jacob | Ally.Mordin,
-        'loyalty': Ally.Jack | Ally.Kasumi | Ally.Miranda,
+        'spared': Ally.Garrus | Ally.Jacob | Ally.Jack | Ally.Kasumi | \
+                  Ally.Legion,
+        'dead': Ally.Grunt | Ally.Miranda | Ally.Mordin,
+        'loyalty': Ally.Jacob | Ally.Jack | Ally.Kasumi,
         'crew': True
       }
     )
