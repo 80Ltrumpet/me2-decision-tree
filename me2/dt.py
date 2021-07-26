@@ -4,7 +4,7 @@ from functools import reduce
 from itertools import combinations as combos
 from operator import or_
 from pickle import Pickler, Unpickler
-from signal import SIGINT, signal
+from signal import SIG_DFL, SIGINT, signal
 from typing import Any, Optional, TYPE_CHECKING, TypeVar
 
 from .ally import *
@@ -351,6 +351,10 @@ class DecisionTree:
   # Runtime
   #
 
+  def pause(self) -> None:
+    """Requests a pause in the decision tree generation."""
+    self.pausing = True
+
   def is_complete(self) -> bool:
     """Checks if the decision tree has exhausted all possible traversals."""
     return self.memo.get(MemoKey.N_OPT.name, None) == 0
@@ -364,16 +368,24 @@ class DecisionTree:
     saver.start()
     # Pressing Ctrl-C gracefully pauses the operation.
     def handle_sigint(*_) -> None:
-      self.pausing = True
-    sigint_handler = signal(SIGINT, handle_sigint)
+      self.pause()
+    try:
+      sigint_handler = signal(SIGINT, handle_sigint)
+    except ValueError:
+      # Expected if not called on the main thread.
+      sigint_handler = SIG_DFL
+    # Start generating the decision tree.
     try:
       self.choose_recruitment()
     except _DecisionTreePauseException:
       pass
     finally:
       self.save()
-    # Restore the original SIGINT handler.
-    signal(SIGINT, sigint_handler)
+    # Restore the original SIGINT handler, if applicable.
+    try:
+      signal(SIGINT, sigint_handler)
+    except ValueError:
+      pass  # Expected if not called on the main thread.
     saver.cancel()
 
   #
