@@ -97,17 +97,17 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
       output += f'make sure to leave {cbs_leave} behind'
     output += '.\n'
   
-  output += f'Choose {tech} as the tech specialist'
+  output += f'Choose {tech} as the tech specialist.\n'
   if has_leader1:
-    output += ', and choose '
+    output += 'Choose '
     if not leader1:
       output += 'anyone except '
     output += f'{ideal_leaders.conj("or")} to lead the second fireteam.\n'
   else:
-    output += '. The second fireteam leader does not matter.\n'
+    output += 'The second fireteam leader does not matter.\n'
 
-  output += f'Choose {biotic} as the biotic specialist '
-  output += f'and {leader2} to lead the diversion team.\n'
+  output += f'Choose {biotic} as the biotic specialist.\n'
+  output += f'Choose {leader2} to lead the diversion team.\n'
   if escort:
     output += f'Send {escort} to escort the crew.\n'
   else:
