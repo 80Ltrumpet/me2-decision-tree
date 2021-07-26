@@ -1,19 +1,15 @@
 from typing import Any
 
-from .ally import Ally as _Ally, EVERYONE as _EVERYONE, IDEAL_LEADERS
-from .ally import IDEAL_LEADERS as _IDEAL_LEADERS, LOYALTY_MASK as _LOYALTY_MASK
-from .ally import NOBODY as _NOBODY, OPTIONAL as _OPTIONAL
-from .ally import REQUIRED as _REQUIRED
-from .bits import bit_indices as _bit_indices, ffs as _ffs, mask as _mask
-from .bits import popcount as _popcount
+from .ally import *
+from .bits import bit_indices, ffs, mask, popcount
 
-_ALLY_LEN = len(_Ally)
-_ALLY_LOYALTY_LEN = _popcount(_LOYALTY_MASK.value)
-_ALLY_OPTIONAL_LEN = _popcount(_OPTIONAL.value)
-_ALLY_OPTIONAL_SHIFT = _ffs(_OPTIONAL.value)
+_ALLY_LEN = len(Ally)
+_ALLY_LOYALTY_LEN = popcount(LOYALTY_MASK.value)
+_ALLY_OPTIONAL_LEN = popcount(OPTIONAL.value)
+_ALLY_OPTIONAL_SHIFT = ffs(OPTIONAL.value)
 _ALLY_INDEX_LEN = _ALLY_LEN.bit_length()
-_ALLY_INDEX_MASK = _mask(_ALLY_INDEX_LEN)
-_IDEAL_LEADERS_LEN = _popcount(_IDEAL_LEADERS.value)
+_ALLY_INDEX_MASK = mask(_ALLY_INDEX_LEN)
+_IDEAL_LEADERS_LEN = popcount(IDEAL_LEADERS.value)
 
 class Encoder:
   """Facilitates bit-packing various types in a variable sequence."""
@@ -35,15 +31,15 @@ class Encoder:
     
     For Ally enumeration members, see encode_ally_index().
     """
-    self._append(ally & _EVERYONE.value, _ALLY_LEN)
+    self._append(ally & EVERYONE.value, _ALLY_LEN)
 
   def encode_ally_loyalty(self, loyalty: int) -> None:
     """Encodes an integer masked by LOYALTY_MASK."""
-    self._append(loyalty & _LOYALTY_MASK.value, _ALLY_LOYALTY_LEN)
+    self._append(loyalty & LOYALTY_MASK.value, _ALLY_LOYALTY_LEN)
 
   def encode_ally_optional(self, ally: int) -> None:
     """Encodes an integer masked by OPTIONAL."""
-    self._append((ally & _OPTIONAL.value) >> _ALLY_OPTIONAL_SHIFT,
+    self._append((ally & OPTIONAL.value) >> _ALLY_OPTIONAL_SHIFT,
                   _ALLY_OPTIONAL_LEN)
 
   def encode_ally_index(self, index: int) -> None:
@@ -64,12 +60,12 @@ class Encoder:
     If squad does not contain exactly two set bits, raises a ValueError.
     """
     i = 1
-    for i, index in enumerate(_bit_indices(squad), 1):
+    for i, index in enumerate(bit_indices(squad), 1):
       if i > 2:
-        raise ValueError(f'Too many squadmates: {_Ally(squad)}')
+        raise ValueError(f'Too many squadmates: {Ally(squad)}')
       self.encode_ally_index(index + 1)
     if i != 2:
-      raise ValueError(f'Not a full squad: {_Ally(squad)}')
+      raise ValueError(f'Not a full squad: {Ally(squad)}')
 
   def encode_choices(self, choices: list[int]) -> None:
     """Encodes two Ally indices with a preceding bit indicating whether the
@@ -81,8 +77,8 @@ class Encoder:
     first_choice = choices[0] if choices and choices[0] else 0
     second_choice = choices[1] if first_choice and len(choices) > 1 else 0
     self.encode_bool(len(choices) < 3)
-    self.encode_ally_index(_ffs(first_choice) + 1)
-    self.encode_ally_index(_ffs(second_choice) + 1)
+    self.encode_ally_index(ffs(first_choice) + 1)
+    self.encode_ally_index(ffs(second_choice) + 1)
 
 
 def encode_outcome(**outcome) -> int:
@@ -103,7 +99,7 @@ class Decoder:
     self.encoded = encoded
 
   def _shift(self, length: int) -> int:
-    bits = self.encoded & _mask(length)
+    bits = self.encoded & mask(length)
     self.encoded >>= length
     return bits
 
@@ -111,33 +107,33 @@ class Decoder:
     """Decodes a Boolean value."""
     return bool(self._shift(1))
 
-  def decode_ally(self) -> _Ally:
+  def decode_ally(self) -> Ally:
     """Decodes a compound Ally."""
-    return _Ally(self._shift(_ALLY_LEN))
+    return Ally(self._shift(_ALLY_LEN))
   
-  def decode_ally_loyalty(self) -> _Ally:
+  def decode_ally_loyalty(self) -> Ally:
     """Decodes a compound Ally masked by LOYALTY_MASK."""
-    return _Ally(self._shift(_ALLY_LOYALTY_LEN))
+    return Ally(self._shift(_ALLY_LOYALTY_LEN))
 
-  def decode_ally_optional(self) -> _Ally:
+  def decode_ally_optional(self) -> Ally:
     """Decodes a compound Ally masked by OPTIONAL."""
-    return _Ally(self._shift(_ALLY_OPTIONAL_LEN) << _ALLY_OPTIONAL_SHIFT)
+    return Ally(self._shift(_ALLY_OPTIONAL_LEN) << _ALLY_OPTIONAL_SHIFT)
 
-  def decode_ally_index(self) -> _Ally:
+  def decode_ally_index(self) -> Ally:
     """Decodes an index as an Ally."""
     index = self._shift(_ALLY_INDEX_LEN)
-    return _Ally(1 << (index - 1)) if index > 0 else _NOBODY
+    return Ally(1 << (index - 1)) if index > 0 else NOBODY
 
-  def decode_ideal_leaders(self) -> _Ally:
+  def decode_ideal_leaders(self) -> Ally:
     """Decodes a compound Ally masked by IDEAL_LEADERS."""
-    return _Ally(self._shift(_IDEAL_LEADERS_LEN))
+    return Ally(self._shift(_IDEAL_LEADERS_LEN))
 
-  def decode_squad(self) -> _Ally:
+  def decode_squad(self) -> Ally:
     """Decodes two indices as a compound Ally."""
     squad = self.decode_ally_index()
     return squad | self.decode_ally_index()
 
-  def decode_choices(self) -> tuple[bool, list[_Ally]]:
+  def decode_choices(self) -> tuple[bool, list[Ally]]:
     """Decodes two indices with a preceding bit indicating whether the last
     non-zero index should be treated as an opposite choice.
     
@@ -158,7 +154,7 @@ def decode_outcome(encoded: int) -> dict[str, Any]:
   outcome: dict[str, Any] = {}
   decoder = Decoder(encoded)
   outcome['spared'] = (spared := decoder.decode_ally())
-  outcome['dead'] = decoder.decode_ally_optional() | _REQUIRED & ~spared
-  outcome['loyalty'] = decoder.decode_ally_loyalty() | _Ally.Morinth & spared
+  outcome['dead'] = decoder.decode_ally_optional() | REQUIRED & ~spared
+  outcome['loyalty'] = decoder.decode_ally_loyalty() | Ally.Morinth & spared
   outcome['crew'] = decoder.decode_bool()
   return outcome

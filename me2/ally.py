@@ -1,30 +1,30 @@
 from __future__ import annotations
-from enum import auto as _auto, Flag as _Flag
+from enum import auto, Flag
 from typing import Generator
 
-from .bits import bits as _bits, mask as _mask, popcount as _popcount
+from .bits import bits, mask, popcount
 
-class Ally(_Flag):
+class Ally(Flag):
   """Enumeration of all allies in Mass Effect 2."""
 
   # Required
   # Group Garrus, Jacob, and Miranda (ideal leaders) together for optimization.
-  Garrus = _auto()
-  Jacob = _auto()
-  Miranda = _auto()
-  Jack = _auto()
-  Mordin = _auto()
+  Garrus = auto()
+  Jacob = auto()
+  Miranda = auto()
+  Jack = auto()
+  Mordin = auto()
 
   # Optional
-  Grunt = _auto()
-  Kasumi = _auto()
-  Legion = _auto()
-  Samara = _auto()
-  Tali = _auto()
-  Thane = _auto()
-  Zaeed = _auto()
+  Grunt = auto()
+  Kasumi = auto()
+  Legion = auto()
+  Samara = auto()
+  Tali = auto()
+  Thane = auto()
+  Zaeed = auto()
   # Place Morinth at the end for optimization.
-  Morinth = _auto()
+  Morinth = auto()
 
   def conj(self, conjunction: str = 'and') -> str:
     """Converts this Ally into a human-readable string with the specified
@@ -33,7 +33,7 @@ class Ally(_Flag):
       return self.name
     if self.value == 0:
       return 'nobody'
-    if self.value == _mask(len(Ally)):
+    if self.value == mask(len(Ally)):
       return 'everyone'
     names = sorted(ally.name for ally in self)
     if len(names) == 2:
@@ -42,11 +42,11 @@ class Ally(_Flag):
 
   def __len__(self) -> int:
     """Counts the number of allies represented by this Ally."""
-    return _popcount(self.value)
+    return popcount(self.value)
 
   def __iter__(self) -> Generator[Ally, None, None]:
     """Generates Ally enumeration members from this Ally."""
-    return (Ally(bit) for bit in _bits(self.value))
+    return (Ally(bit) for bit in bits(self.value))
 
   def __str__(self) -> str:
     """Converts this Ally into a human-readable string."""
@@ -61,7 +61,7 @@ class Ally(_Flag):
 #
 
 NOBODY = Ally(0)
-EVERYONE = Ally(_mask(len(Ally)))
+EVERYONE = Ally(mask(len(Ally)))
 
 # These allies are required to complete the game.
 REQUIRED = Ally.Garrus | Ally.Jack | Ally.Jacob | Ally.Miranda | Ally.Mordin
