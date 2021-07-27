@@ -1,7 +1,7 @@
 import sys
 
 if len(sys.argv) < 2:
-  print('Usage: python -m me2 <path to decision tree data file>')
+  print('Usage: python -m me2 <path to data file>')
   sys.exit(2)
 dt_file_path = sys.argv[1]
 

@@ -1,3 +1,5 @@
+#! /usr/bin/env python3 -i
+
 import atexit
 from me2.dt import *
 import sys
@@ -11,10 +13,9 @@ dt_file_path = sys.argv[1]
 dt = DecisionTree(dt_file_path)
 if dt.is_complete():
   print('The decision tree is fully generated!')
-elif not dt.outcomes:
-  print(f"WARNING: '{dt_file_path}' is empty or does not exist.")
-
-if not dt.is_complete():
+else:
+  if not dt.outcomes:
+    print(f"WARNING: '{dt_file_path}' is empty or does not exist.")
   print('Generating decision tree in a daemon thread.')
   dt_thread = Thread(target=dt.generate)
   dt_thread.daemon = True
