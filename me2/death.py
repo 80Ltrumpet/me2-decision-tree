@@ -1,8 +1,8 @@
-from statistics import fmean
+import statistics
 from typing import Callable
 
 from .ally import Ally
-from .bits import bits, popcount
+from . import bits
 
 # The following lists indicate the order in which allies are selected for
 # death when certain conditions are met.
@@ -94,10 +94,11 @@ _DEFENSE_TOLL_FORMULA: list[Callable[[float], int]] = [
 
 def get_defense_toll(team: int, loyal: int) -> int:
   """Computes the death toll for the defense team."""
-  if not (team_size := popcount(team)):
+  if not (team_size := bits.popcount(team)):
     raise ValueError('Zero defending allies')
   # Compute the average defense score. Disloyal allies' scores are reduced.
-  score = fmean(_DEFENSE_SCORE[a] - bool(a & ~loyal) for a in bits(team))
+  score = statistics.fmean(
+    _DEFENSE_SCORE[a] - bool(a & ~loyal) for a in bits.bits(team))
   if team_size < len(_DEFENSE_TOLL_FORMULA):
     return _DEFENSE_TOLL_FORMULA[team_size](score)
   return _DEFENSE_TOLL_FORMULA[-1](score)
