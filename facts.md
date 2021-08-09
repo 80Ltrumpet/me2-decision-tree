@@ -17,6 +17,9 @@
 *   The one thousand most common outcomes cover 6,807,718,024 traversals.
 *   Morinth is more likely to survive than a loyal Samara.
     *   Loyal Samara's survival rate is 87.1% of Morinth's.
+*   There are 324,677,659 ways to prevent Shepard from surviving the suicide
+    mission (less than two allies survive).
+    *   In other words, Shepard survives 99.18% of all traversals.
 
 ## Survival Rates
 
