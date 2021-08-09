@@ -217,7 +217,7 @@ class DecisionTree:
     leader1: Optional[bool] = self.checkpoints.get(Checkpoint.LEADER1, None)
     if leader1 is not None:
       encoder.encode_bool(leader1)
-      # This cache key is mandatory if an ideal leader is selected.
+      # This cache key is mandatory if a non-ideal tech is selected.
       encoder.encode_ideal_leaders(self.cache[CacheKey.IDEAL_LEADERS])
     encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.BIOTIC]) + 1)
     encoder.encode_ally_index(
