@@ -10,22 +10,23 @@ from typing import Any, Optional
 from .ally import *
 from . import bits, death, encdec, util
 
-def describe_outcome(encoded: int, *, full: bool = False) -> str:
+def describe_outcome(encoded: int, *, brief: bool = False) -> str:
   """Produces a human-readable string describing the encoded outcome.
   
-  For the most verbose output, set full to True.
+  For brief output, set brief to True.
   """
   outcome = encdec.decode_outcome(encoded)
   ally_count = len(outcome['spared'])
 
-  if full:
-    output  = f'Survived: ({ally_count}) {outcome["spared"]}\n'
-    output += f'Loyal:    {outcome["loyalty"]}\n'
-    return output + f'Crew:     {"survived" if outcome["crew"] else "dead"}'
+  if brief:
+    x_allies = f'{ally_count} all{"ies" if ally_count != 1 else "y"}'
+    and_the_crew = ' and the crew ' if outcome['crew'] else ' '
+    return f'{x_allies}{and_the_crew}survived.'
 
-  x_allies = f'{ally_count} all{"ies" if ally_count != 1 else "y"}'
-  and_the_crew = ' and the crew ' if outcome['crew'] else ' '
-  return f'{x_allies}{and_the_crew}survived.'
+  output  = f'Survived: ({ally_count}) {outcome["spared"]}\n'
+  output += f'Loyal:    {outcome["loyalty"]}\n'
+  return output + f'Crew:     {"survived" if outcome["crew"] else "dead"}'
+
 
 def describe_traversal(traversal: int) -> str:
   """Produces a human-readable string describing the traversal encoded in the
