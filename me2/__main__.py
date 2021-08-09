@@ -34,10 +34,10 @@ def progress() -> None:
   succeeded = False
   while not succeeded:
     try:
-      n_opt = dt.memo[MemoKey.N_OPT.name]
-      recruits = tuple(bit_indices(dt.memo[MemoKey.RECRUITS.name]))
+      n_opt = dt.checkpoints[Checkpoint.N_OPT]
+      recruits = tuple(bit_indices(dt.checkpoints[Checkpoint.RECRUITS]))
       choices = list(combinations(bit_indices(RECRUITABLE.value), n_opt))
-      loyalty = dt.memo[MemoKey.LOYALTY.name] & LOYALTY_MASK.value
+      loyalty = dt.checkpoints[Checkpoint.LOYALTY] & LOYALTY_MASK.value
       succeeded = True
     except KeyError:
       sleep(0.1)

@@ -1,12 +1,11 @@
 from __future__ import annotations
-from dataclasses import dataclass
 import enum
 from functools import reduce
 from itertools import combinations
 from operator import or_
 import pickle
 import signal
-from typing import Any, Optional, TypeVar
+from typing import Any, Optional
 
 from .ally import *
 from . import bits, death, encdec, util
@@ -121,43 +120,7 @@ def describe_traversal(traversal: int) -> str:
   return output
 
 
-# Not using frozen=True to avoid the performance penalty on __init__().
-@dataclass
-class Team:
-  """Team state tracker
-  
-  This class should be treated as immutable to make it "stack-friendly."
-  Operative methods always return a new instance.
-  """
-  active: int = REQUIRED.value
-  dead: int = 0
-  spared: int = 0
-
-  def kill(self, ally: int) -> Team:
-    """Returns a new Team where the specified ally is dead."""
-    return Team(self.active & ~ally, self.dead | ally, self.spared)
-
-  def spare(self, ally: int) -> Team:
-    """Returns a new Team where the specified ally is spared."""
-    return Team(self.active & ~ally, self.dead, self.spared | ally)
-
-  def kill_and_spare_active(self, ally: int) -> Team:
-    """Returns a new Team where the specified ally is dead and all active allies
-    are spared."""
-    return Team(0, self.dead | ally, self.spared | (self.active & ~ally))
-
-  def recruit(self, ally: int) -> Team:
-    """Returns a new Team where the specified ally is active."""
-    active = self.active | ally
-    dead = self.dead
-    # To add Morinth to the team, Samara must be dead.
-    if Ally.Morinth.value & ally:
-      active &= ~Ally.Samara.value
-      dead |= Ally.Samara.value
-    return Team(active, dead, self.spared)
-
-
-class MemoKey(enum.Enum):
+class Checkpoint(enum.Enum):
   N_OPT = enum.auto()
   RECRUITS = enum.auto()
   LOYALTY = enum.auto()
@@ -187,9 +150,6 @@ class DecisionTreePauseException(Exception):
   pass
 
 
-# Used for generic type annotations.
-T = TypeVar('T')
-
 # Interval in seconds between periodic saves.
 _SAVE_INTERVAL = 5 * 60
 
@@ -210,114 +170,98 @@ class DecisionTree:
     given file_path."""
     if not file_path:
       raise ValueError('A decision tree file path must be provided')
-    # Similar to the memo, but not persistent.
+    # Stores checkpoint data that is necessary for traversal encoding but not
+    # ideal for restoring iteration state.
     self.cache: dict[CacheKey, Any] = {}
     self.file_path = file_path
     self.loyal = 0
-    self.memo: dict[str, Any] = {}
+    self.checkpoints: dict[Checkpoint, Any] = {}
     self.needs_save = False
     self.outcomes: dict[int, tuple[int, int]] = {}
     self.pausing = False
-    # Used for marking which keys from the memo have already been read.
-    self.spent_memo_keys: set[MemoKey] = set()
     self.load()
 
   #
   # Outcome Encoding
   #
 
-  def record_outcome(self, team: Team) -> None:
+  def record_outcome(self, team: int) -> None:
     """Encodes the outcome based on the final state of the team and adds it to
     the outcome dictionary with a 2-tuple containing the number of traversals
     resulting in that outcome and an encoding of the last such traversal."""
-    # The encoded outcome is 34 bits wide.
+    # Check if the escort survived.
+    escort = self.checkpoints.get(Checkpoint.ESCORT, 0)
+    if escort & self.loyal:
+      team |= escort
+
+    # The encoded outcome is 26 bits long.
     outcome = encdec.encode_outcome(
-      spared = team.spared,
-      loyalty = team.spared & self.loyal,
-      crew = self.memo.get(MemoKey.CREW.name, False)
+      spared = team,
+      loyalty = team & self.loyal,
+      crew = self.checkpoints.get(Checkpoint.CREW, False)
     )
 
-    # The bit-width of the encoded traversal is variable. (min, max) = (40, 62)
+    # The bit-width of the encoded traversal is variable. (min, max) = (48, 70)
     encoder = encdec.Encoder()
-    encoder.encode_ally_optional(team.spared | team.dead)
+    encoder.encode_ally_optional(self.checkpoints[Checkpoint.RECRUITS])
     encoder.encode_ally_loyalty(self.loyal)
-    encoder.encode_bool(self.memo.get(MemoKey.ARMOR.name, True))
-    encoder.encode_bool((shield := self.memo.get(MemoKey.SHIELD.name, True)))
-    encoder.encode_bool(self.memo.get(MemoKey.WEAPON.name, True))
+    encoder.encode_bool(self.checkpoints.get(Checkpoint.ARMOR, True))
+    shield = self.checkpoints.get(Checkpoint.SHIELD, True)
+    encoder.encode_bool(shield)
+    encoder.encode_bool(self.checkpoints.get(Checkpoint.WEAPON, True))
     if not shield:
       # This cache key is mandatory if the shield is not upgraded.
       encoder.encode_choices(self.cache[CacheKey.CARGO_BAY_PICKS])
-    encoder.encode_ally_index(bits.ffs(self.memo[MemoKey.TECH.name]) + 1)
-    leader1: Optional[bool] = self.memo.get(MemoKey.LEADER1.name, None)
+    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.TECH]) + 1)
+    leader1: Optional[bool] = self.checkpoints.get(Checkpoint.LEADER1, None)
     if leader1 is not None:
       encoder.encode_bool(leader1)
       # This cache key is mandatory if an ideal leader is selected.
       encoder.encode_ideal_leaders(self.cache[CacheKey.IDEAL_LEADERS])
-    encoder.encode_ally_index(bits.ffs(self.memo[MemoKey.BIOTIC.name]) + 1)
-    encoder.encode_ally_index(bits.ffs(self.memo[MemoKey.LEADER2.name]) + 1)
+    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.BIOTIC]) + 1)
     encoder.encode_ally_index(
-      bits.ffs(self.memo.get(MemoKey.ESCORT.name, 0)) + 1)
-    walk_unpick = self.memo.get(MemoKey.WALK_UNPICK.name, None) is not None
+      bits.ffs(self.checkpoints[Checkpoint.LEADER2]) + 1)
+    encoder.encode_ally_index(bits.ffs(escort) + 1)
+    walk_unpick = self.checkpoints.get(Checkpoint.WALK_UNPICK, None) is not None
     encoder.encode_bool(walk_unpick)
     if walk_unpick:
       # This cache key is mandatory if the biotic is not loyal and ideal and a
       # meaningful squad selection is possible.
       encoder.encode_choices(self.cache[CacheKey.LONG_WALK_UNPICKS])
-    encoder.encode_squad(self.memo.get(MemoKey.FINAL_SQUAD.name, 0))
+    encoder.encode_squad(self.checkpoints.get(Checkpoint.FINAL_SQUAD, 0))
     traversal = encoder.result
     
     # Replace the outcome tuple.
     traversal_count = self.outcomes.get(outcome, (0, 0))[0] + 1
     self.outcomes[outcome] = (traversal_count, traversal)
-
-  #
-  # Memo
-  #
-  # Although the MemoKey enumeration members are used as arguments to the
-  # following methods, their names are stored as the keys for optimal pickling.
-  #
-
-  def read_memo(self, key: MemoKey, default: T) -> T:
-    """Gets the value of the requested memo key on the first call.
-    
-    On subsequent calls or if the key is not in the memo, returns default.
-    """
-    if key in self.spent_memo_keys:
-      return default
-    self.spent_memo_keys.add(key)
-    return self.memo.get(key.name, default)
   
-  def write_memo(self, key: MemoKey, value: Any) -> None:
-    """Sets the value for the requested memo key and checks if the user
+  #
+  # Persistence
+  #
+
+  def set_checkpoint(self, key: Checkpoint, value: Any) -> None:
+    """Sets the value for the requested checkpoint and checks if the user
     requested a pause or if a periodic save was requested."""
-    self.memo[key.name] = value
+    self.checkpoints[key] = value
     if self.pausing:
       raise DecisionTreePauseException()
     if self.needs_save:
       self.save()
       self.needs_save = False
 
-  def clear_memo(self, key: MemoKey) -> None:
-    """Deletes a key from the memo, whether or not it exists."""
-    self.memo.pop(key.name, None)
-  
-  #
-  # Persistence
-  #
-
   def save(self) -> None:
-    """Writes memo and outcome data to a file."""
+    """Writes checkpoints and outcome data to a file."""
     with open(self.file_path, 'wb') as datafile:
       pickler = pickle.Pickler(datafile)
-      pickler.dump(self.memo)
+      pickler.dump(self.checkpoints)
       pickler.dump(self.outcomes)
 
   def load(self) -> None:
-    """Reads memo and outcome data from a file."""
+    """Reads checkpoints and outcome data from a file."""
     try:
       with open(self.file_path, 'rb') as datafile:
         unpickler = pickle.Unpickler(datafile)
-        self.memo = unpickler.load()
+        self.checkpoints = unpickler.load()
         self.outcomes = unpickler.load()
     except FileNotFoundError:
       pass
@@ -332,10 +276,12 @@ class DecisionTree:
 
   def is_complete(self) -> bool:
     """Checks if the decision tree has exhausted all possible traversals."""
-    return self.memo.get(MemoKey.N_OPT.name, None) == 0
+    return self.checkpoints.get(Checkpoint.N_OPT, None) == 0
 
   def generate(self) -> None:
     """Generates decision tree outcomes."""
+    if self.is_complete():
+      return
     # Set up a timer to periodically save progress.
     def request_save() -> None:
       self.needs_save = True
@@ -369,226 +315,223 @@ class DecisionTree:
 
   def choose_recruitment(self) -> None:
     # At least three optional allies must be recruited to finish the game.
-    n_start = self.read_memo(MemoKey.N_OPT, 3)
+    n_start = self.checkpoints.get(Checkpoint.N_OPT, 3)
     if n_start == 0:
       return
     for n in range(n_start, len(RECRUITABLE) + 1):
-      self.write_memo(MemoKey.N_OPT, n)
+      self.set_checkpoint(Checkpoint.N_OPT, n)
       self.choose_recruits(n)
     # This signals that all outcomes have been generated.
-    self.write_memo(MemoKey.N_OPT, 0)
+    self.set_checkpoint(Checkpoint.N_OPT, 0)
 
   def choose_recruits(self, n: int) -> None:
     # Iterate through all possible combinations of optional recruitment.
-    memo_recruits = self.read_memo(MemoKey.RECRUITS, 0)
-    remaining_recruits = RECRUITABLE.value & ~bits.mtz(memo_recruits)
+    ckpt_recruits = self.checkpoints.get(Checkpoint.RECRUITS, 0)
+    remaining_recruits = RECRUITABLE.value & ~bits.mtz(ckpt_recruits)
     for recruits_tuple in combinations(bits.bits(remaining_recruits), n):
       recruits: int = reduce(or_, recruits_tuple)
-      if memo_recruits and recruits != memo_recruits:
+      if ckpt_recruits and recruits != ckpt_recruits:
         continue
-      memo_recruits = 0
-      self.write_memo(MemoKey.RECRUITS, recruits)
-      self.choose_loyalty_missions(Team().recruit(recruits))
-    self.clear_memo(MemoKey.RECRUITS)
+      ckpt_recruits = 0
+      self.set_checkpoint(Checkpoint.RECRUITS, recruits)
+      self.choose_loyalty_missions(recruits | REQUIRED.value)
+    del self.checkpoints[Checkpoint.RECRUITS]
 
-  def choose_loyalty_missions(self, team: Team) -> None:
+  def choose_loyalty_missions(self, team: int) -> None:
     # Iterate through all relevant loyalty mappings. Morinth is always loyal.
-    loyalty = self.read_memo(MemoKey.LOYALTY, Ally.Morinth.value)
+    loyalty = self.checkpoints.get(Checkpoint.LOYALTY, Ally.Morinth.value)
     while loyalty <= EVERYONE.value:
       self.loyal = loyalty
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
-      if self.loyal & LOYALTY_MASK.value & ~team.active:
+      if self.loyal & LOYALTY_MASK.value & ~team:
         loyalty += bits.fsb(loyalty)
         continue
-      self.write_memo(MemoKey.LOYALTY, loyalty)
+      self.set_checkpoint(Checkpoint.LOYALTY, loyalty)
       self.choose_morinth(team)
       # Increment loop variable.
       loyalty += 1
-    self.clear_memo(MemoKey.LOYALTY)
+    del self.checkpoints[Checkpoint.LOYALTY]
   
-  def choose_morinth(self, team: Team) -> None:
-    if not self.read_memo(MemoKey.MORINTH, False):
+  def choose_morinth(self, team: int) -> None:
+    if not self.checkpoints.get(Checkpoint.MORINTH, False):
       self.choose_armor_upgrade(team)
     # If Samara was recruited and loyal, re-run with Morinth instead.
     # Recruiting Morinth always kills Samara.
-    if Ally.Samara.value & team.active & self.loyal:
-      self.write_memo(MemoKey.MORINTH, True)
-      self.choose_armor_upgrade(team.recruit(Ally.Morinth.value))
-    self.clear_memo(MemoKey.MORINTH)
+    if Ally.Samara.value & team & self.loyal:
+      self.set_checkpoint(Checkpoint.MORINTH, True)
+      self.choose_armor_upgrade(team | Ally.Morinth.value & ~Ally.Samara.value)
+    self.checkpoints.pop(Checkpoint.MORINTH, None)
 
-  def choose_armor_upgrade(self, team: Team) -> None:
+  def choose_armor_upgrade(self, team: int) -> None:
     # If you upgrade to Silaris Armor, no one dies.
-    if self.read_memo(MemoKey.ARMOR, True):
+    if self.checkpoints.get(Checkpoint.ARMOR, True):
       self.choose_shield_upgrade(team)
     # Otherwise, there is a victim.
-    self.write_memo(MemoKey.ARMOR, False)
-    victim = death.get_victim(team.active, death.DP_NO_ARMOR_UPGRADE)
-    self.choose_shield_upgrade(team.kill(victim))
-    self.clear_memo(MemoKey.ARMOR)
+    self.set_checkpoint(Checkpoint.ARMOR, False)
+    victim = death.get_victim(team, death.DP_NO_ARMOR_UPGRADE)
+    self.choose_shield_upgrade(team & ~victim)
+    del self.checkpoints[Checkpoint.ARMOR]
 
-  def choose_shield_upgrade(self, team: Team) -> None:
+  def choose_shield_upgrade(self, team: int) -> None:
     # If you upgrade to Cyclonic Shields, no one dies.
-    if self.read_memo(MemoKey.SHIELD, True):
+    if self.checkpoints.get(Checkpoint.SHIELD, True):
       self.choose_weapon_upgrade(team)
     # Otherwise, there is a victim, but you can affect who it is through your
     # squad selection for the battle in the cargo bay.
-    self.write_memo(MemoKey.SHIELD, False)
+    self.set_checkpoint(Checkpoint.SHIELD, False)
     self.choose_cargo_bay_squad(team)
-    self.clear_memo(MemoKey.SHIELD)
+    del self.checkpoints[Checkpoint.SHIELD]
 
-  def choose_cargo_bay_squad(self, team: Team) -> None:
-    memo_pick = self.read_memo(MemoKey.CB_PICK, 0)
-    pool = team.active
+  def choose_cargo_bay_squad(self, team: int) -> None:
+    ckpt_pick = self.checkpoints.get(Checkpoint.CB_PICK, 0)
     # If you do *not* pick the #1 victim, they will die. If you pick the #1
     # victim but not the #2 victim, the #2 victim will die. If you pick both,
     # the #3 victim will die. Therefore, there are only three possible victims.
+    victim_pool = team
     picks: list[int] = []
     for pick in range(3):
-      victim = death.get_victim(pool, death.DP_NO_SHIELD_UPGRADE)
+      victim = death.get_victim(victim_pool, death.DP_NO_SHIELD_UPGRADE)
       picks.append(victim)
-      if pick >= memo_pick:
-        self.write_memo(MemoKey.CB_PICK, pick)
+      if pick >= ckpt_pick:
+        self.set_checkpoint(Checkpoint.CB_PICK, pick)
         self.cache[CacheKey.CARGO_BAY_PICKS] = picks
-        self.choose_weapon_upgrade(team.kill(victim))
+        self.choose_weapon_upgrade(team & ~victim)
       # Selecting the prioritized victim(s) for your squad removes them from the
       # victim pool.
-      pool &= ~victim
+      victim_pool &= ~victim
     del self.cache[CacheKey.CARGO_BAY_PICKS]
-    self.clear_memo(MemoKey.CB_PICK)
+    del self.checkpoints[Checkpoint.CB_PICK]
 
-  def choose_weapon_upgrade(self, team: Team) -> None:
+  def choose_weapon_upgrade(self, team: int) -> None:
     # If you upgrade to the Thanix Cannon, no one dies.
-    if self.read_memo(MemoKey.WEAPON, True):
+    if self.checkpoints.get(Checkpoint.WEAPON, True):
       self.choose_tech(team)
     # Otherwise, there is a victim.
-    self.write_memo(MemoKey.WEAPON, False)
-    victim = death.get_victim(team.active, death.DP_NO_WEAPON_UPGRADE)
-    self.choose_tech(team.kill(victim))
-    self.clear_memo(MemoKey.WEAPON)
+    self.set_checkpoint(Checkpoint.WEAPON, False)
+    victim = death.get_victim(team, death.DP_NO_WEAPON_UPGRADE)
+    self.choose_tech(team & ~victim)
+    del self.checkpoints[Checkpoint.WEAPON]
   
-  def choose_tech(self, team: Team) -> None:
+  def choose_tech(self, team: int) -> None:
     # Iterate through all selectable teammates for the tech specialist.
-    cur_tech = self.read_memo(MemoKey.TECH, 0)
-    for tech in bits.bits(team.active & TECHS.value & ~bits.mtz(cur_tech)):
-      self.write_memo(MemoKey.TECH, tech)
+    cur_tech = self.checkpoints.get(Checkpoint.TECH, 0)
+    for tech in bits.bits(team & TECHS.value & ~bits.mtz(cur_tech)):
+      self.set_checkpoint(Checkpoint.TECH, tech)
       # If the tech specialist is loyal and ideal, their survival depends on the
       # first fireteam leader.
       if tech & self.loyal & IDEAL_TECHS.value:
         self.choose_first_leader(team, tech)
       else:
         # Otherwise, they will die. The first fireteam leader does not matter.
-        self.choose_biotic(team.kill(tech))
-    self.clear_memo(MemoKey.TECH)
+        self.choose_biotic(team & ~tech)
+    del self.checkpoints[Checkpoint.TECH]
 
-  def choose_first_leader(self, team: Team, tech: int) -> None:
+  def choose_first_leader(self, team: int, tech: int) -> None:
     # Check if we have any ideal leaders.
-    ideal_leaders = team.active & ~tech & self.loyal & IDEAL_LEADERS.value
+    ideal_leaders = team & ~tech & self.loyal & IDEAL_LEADERS.value
     self.cache[CacheKey.IDEAL_LEADERS] = ideal_leaders
-    if self.read_memo(MemoKey.LEADER1, bool(ideal_leaders)):
-      self.write_memo(MemoKey.LEADER1, True)
+    if self.checkpoints.get(Checkpoint.LEADER1, bool(ideal_leaders)):
+      self.set_checkpoint(Checkpoint.LEADER1, True)
       # If the leader is loyal and ideal, the tech will be spared.
       self.choose_biotic(team)
     # Otherwise, the tech will die.
-    self.write_memo(MemoKey.LEADER1, False)
-    self.choose_biotic(team.kill(tech))
+    self.set_checkpoint(Checkpoint.LEADER1, False)
+    self.choose_biotic(team & ~tech)
     del self.cache[CacheKey.IDEAL_LEADERS]
-    self.clear_memo(MemoKey.LEADER1)
+    del self.checkpoints[Checkpoint.LEADER1]
 
-  def choose_biotic(self, team: Team) -> None:
+  def choose_biotic(self, team: int) -> None:
     # Iterate through all selectable teammates for the biotic specialist.
-    cur_biotic = self.read_memo(MemoKey.BIOTIC, 0)
-    for biotic in bits.bits(team.active & BIOTICS.value & ~bits.mtz(cur_biotic)):
-      self.write_memo(MemoKey.BIOTIC, biotic)
+    cur_biotic = self.checkpoints.get(Checkpoint.BIOTIC, 0)
+    for biotic in bits.bits(team & BIOTICS.value & ~bits.mtz(cur_biotic)):
+      self.set_checkpoint(Checkpoint.BIOTIC, biotic)
       self.choose_second_leader(team, biotic)
-    self.clear_memo(MemoKey.BIOTIC)
+    del self.checkpoints[Checkpoint.BIOTIC]
 
-  def choose_second_leader(self, team: Team, biotic: int) -> None:
+  def choose_second_leader(self, team: int, biotic: int) -> None:
     # Iterate through all selectable teammates for the second fireteam leader.
-    cur_leader = self.read_memo(MemoKey.LEADER2, 0)
-    for leader in bits.bits(team.active & ~(biotic | bits.mtz(cur_leader))):
-      self.write_memo(MemoKey.LEADER2, leader)
+    cur_leader = self.checkpoints.get(Checkpoint.LEADER2, 0)
+    for leader in bits.bits(team & ~(biotic | bits.mtz(cur_leader))):
+      self.set_checkpoint(Checkpoint.LEADER2, leader)
       self.choose_save_the_crew(team, biotic, leader)
-    self.clear_memo(MemoKey.LEADER2)
+    del self.checkpoints[Checkpoint.LEADER2]
   
-  def choose_save_the_crew(self, team: Team, biotic: int, leader: int) -> None:
+  def choose_save_the_crew(self, team: int, biotic: int, leader: int) -> None:
     # Escorting the crew is optional, if you can spare them.
     # NOTE: If only four teammates (the minimum possible) remain at this point,
     # then an escort cannot be selected, since Shepard must have two squadmates
     # for The Long Walk.
-    if not self.read_memo(MemoKey.CREW, False):
+    if not self.checkpoints.get(Checkpoint.CREW, False):
       self.choose_walk_squad(team, biotic, leader)
-    if bits.popcount(team.active) > 4:
+    if bits.popcount(team) > 4:
       # Escorting the crew will save them.
-      self.write_memo(MemoKey.CREW, True)
+      self.set_checkpoint(Checkpoint.CREW, True)
       self.choose_escort(team, biotic, leader)
-    self.clear_memo(MemoKey.CREW)
+    self.checkpoints.pop(Checkpoint.CREW, None)
 
-  def choose_escort(self, team: Team, biotic: int, leader: int) -> None:
+  def choose_escort(self, team: int, biotic: int, leader: int) -> None:
     # If an escort is selected, they will be spared if they are loyal.
     # Otherwise, they will die.
-    cur_escort = self.read_memo(MemoKey.ESCORT, 0)
-    remaining_escorts = team.active & ESCORTS.value
+    cur_escort = self.checkpoints.get(Checkpoint.ESCORT, 0)
+    remaining_escorts = team & ESCORTS.value
     remaining_escorts &= ~(biotic | leader | bits.mtz(cur_escort))
     for escort in bits.bits(remaining_escorts):
-      self.write_memo(MemoKey.ESCORT, escort)
-      t = team.spare(escort) if escort & self.loyal else team.kill(escort)
-      self.choose_walk_squad(t, biotic, leader)
-    self.clear_memo(MemoKey.ESCORT)
+      self.set_checkpoint(Checkpoint.ESCORT, escort)
+      # The escort is removed from the team, but they survive if they are loyal.
+      # That logic is handled in record_outcome().
+      self.choose_walk_squad(team & ~escort, biotic, leader)
+    del self.checkpoints[Checkpoint.ESCORT]
   
-  def choose_walk_squad(self, team: Team, biotic: int, leader: int) -> None:
+  def choose_walk_squad(self, team: int, biotic: int, leader: int) -> None:
     # If the biotic specialist is loyal and ideal, they will not get anyone on
     # your squad killed, so the squad choice does not matter.
     if biotic & self.loyal & IDEAL_BIOTICS.value:
       return self.choose_final_squad(team, leader)
     # If your team is too small to merit a meaningful squad selection, there is
     # only one possible outcome.
-    pool = team.active & ~(biotic | leader)
-    if bits.popcount(pool) < 3:
-      victim = death.get_victim(pool, death.DP_THE_LONG_WALK)
-      return self.choose_final_squad(team.kill(victim), leader)
+    victim_pool = team & ~(biotic | leader)
+    if bits.popcount(victim_pool) < 3:
+      victim = death.get_victim(victim_pool, death.DP_THE_LONG_WALK)
+      return self.choose_final_squad(team & ~victim, leader)
     # Otherwise, you may be able to affect who the victim is through your squad
     # selection.
-    memo_unpick = self.read_memo(MemoKey.WALK_UNPICK, 0)
+    ckpt_unpick = self.checkpoints.get(Checkpoint.WALK_UNPICK, 0)
     self.cache[CacheKey.LONG_WALK_UNPICKS] = (unpicks := [])
-    for unpick in range(min(bits.popcount(pool) - 1, 3)):
-      victim = death.get_victim(pool, death.DP_THE_LONG_WALK)
+    for unpick in range(min(bits.popcount(victim_pool) - 1, 3)):
+      victim = death.get_victim(victim_pool, death.DP_THE_LONG_WALK)
       unpicks.append(victim)
-      if unpick >= memo_unpick:
-        self.write_memo(MemoKey.WALK_UNPICK, unpick)
-        self.choose_final_squad(team.kill(victim), leader)
+      if unpick >= ckpt_unpick:
+        self.set_checkpoint(Checkpoint.WALK_UNPICK, unpick)
+        self.choose_final_squad(team & ~victim, leader)
       # *Not* selecting the prioritized victim(s) removes them from the victim
       # pool.
-      pool &= ~victim
+      victim_pool &= ~victim
     del self.cache[CacheKey.LONG_WALK_UNPICKS]
-    self.clear_memo(MemoKey.WALK_UNPICK)
+    del self.checkpoints[Checkpoint.WALK_UNPICK]
 
-  def choose_final_squad(self, team: Team, leader: int) -> None:
+  def choose_final_squad(self, team: int, leader: int) -> None:
     # The leader of the second fireteam will not die under several conditions:
     # 1. They are loyal and ideal
     # 2. They are special-cased (Miranda)
     # 3. There are fewer than four active teammates (including the leader).
     alive = bool(leader & self.loyal & IDEAL_LEADERS.value)
     alive = alive or bool(leader & IMMORTAL_LEADERS.value)
-    if not (alive or bits.popcount(team.active) < 4):
-      team = team.kill(leader)
+    if not (alive or bits.popcount(team) < 4):
+      team &= ~leader
     # Iterate through all possible final squads.
-    memo_squad = self.read_memo(MemoKey.FINAL_SQUAD, 0)
-    squads = combinations(bits.bits(team.active & ~bits.mtz(memo_squad)), 2)
+    ckpt_squad = self.checkpoints.get(Checkpoint.FINAL_SQUAD, 0)
+    squads = combinations(bits.bits(team & ~bits.mtz(ckpt_squad)), 2)
     for squad_tuple in squads:
       squad: int = reduce(or_, squad_tuple)
-      if memo_squad and squad != memo_squad:
+      if ckpt_squad and squad != ckpt_squad:
         continue
-      memo_squad = 0
-      self.write_memo(MemoKey.FINAL_SQUAD, squad)
+      ckpt_squad = 0
+      self.set_checkpoint(Checkpoint.FINAL_SQUAD, squad)
       # The remaining active teammates form the defense team.
-      defense_team = team.active & ~squad
-      death_toll = death.get_defense_toll(defense_team, self.loyal)
-      victims = 0
-      for _ in range(death_toll):
-        victims |= death.get_defense_victim(defense_team & ~victims, self.loyal)
+      victims = death.get_defense_victims(team & ~squad, self.loyal)
       # Any member of your squad that is not loyal will die.
       victims |= squad & ~self.loyal
       # Any active teammates at this point have survived.
-      self.record_outcome(team.kill_and_spare_active(victims))
-    self.clear_memo(MemoKey.FINAL_SQUAD)
+      self.record_outcome(team & ~victims)
+    del self.checkpoints[Checkpoint.FINAL_SQUAD]

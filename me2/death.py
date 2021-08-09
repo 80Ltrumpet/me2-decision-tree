@@ -33,7 +33,7 @@ DP_THE_LONG_WALK = [
 
 # The average defense score is too low for the defending allies during the final
 # battle. Unlike the other death priority lists, non-loyal allies are
-# prioritized above loyal allies (see get_defense_victim()).
+# prioritized above loyal allies (see get_defense_victims()).
 _DP_DEFENSE = [
   Ally.Mordin.value, Ally.Tali.value, Ally.Kasumi.value, Ally.Jack.value,
   Ally.Miranda.value, Ally.Jacob.value, Ally.Garrus.value, Ally.Samara.value,
@@ -49,16 +49,6 @@ def get_victim(team: int, priority: list[int]) -> int:
   # It should be impossible to encounter a situation where none of the teammates
   # are in the priority list.
   raise RuntimeError("No victim")
-
-def get_defense_victim(defense_team: int, loyal: int) -> int:
-  """Selects the defending teammate who should die."""
-  # If everyone is loyal, this is the same as get_victim().
-  if defense_team == defense_team & loyal:
-    return get_victim(defense_team, _DP_DEFENSE)
-  for ally in _DP_DEFENSE:
-    if ally & defense_team & ~loyal:
-      return ally
-  return get_victim(defense_team, _DP_DEFENSE)
 
 
 # Loyal allies who are left behind to defend during the final battle are
@@ -92,7 +82,7 @@ _DEFENSE_TOLL_FORMULA: list[Callable[[float], int]] = [
   lambda x: 3 if x < 0.5 else 2 if x < 1.5 else 1 if x < 2 else 0
 ]
 
-def get_defense_toll(team: int, loyal: int) -> int:
+def _get_defense_toll(team: int, loyal: int) -> int:
   """Computes the death toll for the defense team."""
   if not (team_size := bits.popcount(team)):
     raise ValueError('Zero defending allies')
@@ -102,3 +92,24 @@ def get_defense_toll(team: int, loyal: int) -> int:
   if team_size < len(_DEFENSE_TOLL_FORMULA):
     return _DEFENSE_TOLL_FORMULA[team_size](score)
   return _DEFENSE_TOLL_FORMULA[-1](score)
+
+def get_defense_victims(defense_team: int, loyal: int) -> int:
+  """Selects the defending teammates who should die."""
+  victims = 0
+  toll = _get_defense_toll(defense_team, loyal)
+  if toll == 0:
+    return victims
+  for ally in _DP_DEFENSE:
+    if ally & defense_team & ~loyal:
+      victims |= ally
+      toll -= 1
+      if toll == 0:
+        break
+  else:
+    for ally in _DP_DEFENSE:
+      if ally & defense_team:
+        victims |= ally
+        toll -= 1
+        if toll == 0:
+          break
+  return victims
