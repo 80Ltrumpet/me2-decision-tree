@@ -53,11 +53,10 @@ class OutcomeEncoderTest(unittest.TestCase):
     # This isn't exactly a valid outcome, but that doesn't matter for encoding!
     encoded_outcome = encode_outcome(
       spared = (Ally.Jacob | Ally.Grunt | Ally.Thane).value,
-      dead = (Ally.Zaeed | Ally.Legion).value,
       loyalty = (Ally.Grunt | Ally.Jacob).value,
       crew = True
     )
-    self.assertEqual(encoded_outcome, 0x204488422)
+    self.assertEqual(encoded_outcome, 0x2044422)
 
 
 class DecoderTest(unittest.TestCase):
@@ -100,11 +99,10 @@ class DecoderTest(unittest.TestCase):
 
 class OutcomeDecoderTest(unittest.TestCase):
   def test_result(self):
-    self.assertEqual(decode_outcome(0x2094020cb),
+    self.assertEqual(decode_outcome(0x20940cb),
       {
         'spared': Ally.Garrus | Ally.Jacob | Ally.Jack | Ally.Kasumi | \
                   Ally.Legion,
-        'dead': Ally.Grunt | Ally.Miranda | Ally.Mordin,
         'loyalty': Ally.Jacob | Ally.Jack | Ally.Kasumi,
         'crew': True
       }

@@ -1,43 +1,40 @@
 from __future__ import annotations
-from enum import auto, Enum
+from dataclasses import dataclass
+import enum
 from functools import reduce
-from itertools import combinations as combos
+from itertools import combinations
 from operator import or_
-from pickle import Pickler, Unpickler
-from signal import SIG_DFL, SIGINT, signal
-from typing import Any, Optional, TYPE_CHECKING, TypeVar
+import pickle
+import signal
+from typing import Any, Optional, TypeVar
 
 from .ally import *
-from .bits import *
-from .death import *
-from .encdec import *
-from .util import PeriodicTimer
+from . import bits, death, encdec, util
 
 def describe_outcome(encoded: int, *, full: bool = False) -> str:
   """Produces a human-readable string describing the encoded outcome.
   
   For the most verbose output, set full to True.
   """
-  outcome = decode_outcome(encoded)
+  outcome = encdec.decode_outcome(encoded)
+  ally_count = len(outcome['spared'])
 
   if full:
-    output  = f'Survived: ({len(outcome["spared"])}) {outcome["spared"]}\n'
-    output += f'Dead:     ({len(outcome["dead"])}) {outcome["dead"]}\n'
-    if outcome['loyalty'] == outcome['spared']:
-      output += 'Loyal:    everyone\n'
-    else:
-      output += f'Loyal:    {outcome["loyalty"]}\n'
+    output  = f'Survived: ({ally_count}) {outcome["spared"]}\n'
+    output += f'Loyal:    {outcome["loyalty"]}\n'
     return output + f'Crew:     {"survived" if outcome["crew"] else "dead"}'
-  
-  output = f'{len(outcome["spared"])} survived; {len(outcome["dead"])} dead; '
-  return output + f'crew {"spared" if outcome["crew"] else "dead"}.'
 
-def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
+  x_allies = f'{ally_count} all{"ies" if ally_count != 1 else "y"}'
+  and_the_crew = ' and the crew ' if outcome['crew'] else ' '
+  return f'{x_allies}{and_the_crew}survived.'
+
+def describe_traversal(traversal: int) -> str:
   """Produces a human-readable string describing the traversal encoded in the
   outcome dictionary entry."""
   # First, decode the traversal using the same variable sequence as the
   # encoding.
-  decoder = Decoder(entry[1][1])
+  decoder = encdec.Decoder(traversal)
+  recruits = decoder.decode_ally_optional()
   loyal = decoder.decode_ally_loyalty()
   upgraded_armor = decoder.decode_bool()
   upgraded_shield = decoder.decode_bool()
@@ -70,12 +67,9 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
     }
     output += f'Upgrade: {", ".join(k for k, v in upgrade_map.items() if v)}\n'
 
-  # Recruitment is decoded from the outcome.
-  outcome = decode_outcome(entry[0])
-  everyone = outcome['spared'] | outcome['dead'] | REQUIRED
-  output += f'Recruit: {everyone & OPTIONAL}\n'
+  output += f'Recruit: {recruits}\n'
 
-  if loyal == everyone & LOYALTY_MASK:
+  if loyal == (recruits | REQUIRED) & LOYALTY_MASK:
     output += 'Do all loyalty missions.\n'
   elif not loyal:
     output += 'Do no loyalty missions.\n'
@@ -127,38 +121,18 @@ def describe_traversal(entry: tuple[int, tuple[int, int]]) -> str:
   return output
 
 
-# Static analysis does not do so well with mixin-esque classes. Since Team does
-# not explicitly declare its attributes, we have to special-case its definition
-# for type-checking to avoid "unfair" errors.
-if TYPE_CHECKING:
-  class MutableTeam:
-    active = REQUIRED.value
-    dead = 0
-    spared = 0
-  _TeamBase = MutableTeam
-else:
-  _TeamBase = object
-
-class Team(_TeamBase):
+# Not using frozen=True to avoid the performance penalty on __init__().
+@dataclass
+class Team:
   """Team state tracker
   
-  This class is immutable to make it "stack-friendly." Operative methods always
-  return a new instance.
+  This class should be treated as immutable to make it "stack-friendly."
+  Operative methods always return a new instance.
   """
-  __slots__ = ['active', 'dead', 'spared']
+  active: int = REQUIRED.value
+  dead: int = 0
+  spared: int = 0
 
-  def __init__(self,
-               active: int = REQUIRED.value,
-               dead: int = 0,
-               spared: int = 0) -> None:
-    """Initializes team state."""
-    super().__setattr__('active', active)
-    super().__setattr__('dead', dead)
-    super().__setattr__('spared', spared)
-
-  def __setattr__(self, name: str, value: Any) -> None:
-    raise TypeError("'Team' object does not support attribute assignment")
-  
   def kill(self, ally: int) -> Team:
     """Returns a new Team where the specified ally is dead."""
     return Team(self.active & ~ally, self.dead | ally, self.spared)
@@ -183,38 +157,38 @@ class Team(_TeamBase):
     return Team(active, dead, self.spared)
 
 
-class MemoKey(Enum):
-  N_OPT = auto()
-  RECRUITS = auto()
-  LOYALTY = auto()
-  MORINTH = auto()
-  ARMOR = auto()
-  SHIELD = auto()
-  CB_PICK = auto()
-  WEAPON = auto()
-  TECH = auto()
-  LEADER1 = auto()
-  BIOTIC = auto()
-  LEADER2 = auto()
-  CREW = auto()
-  ESCORT = auto()
-  WALK_UNPICK = auto()
-  FINAL_SQUAD = auto()
+class MemoKey(enum.Enum):
+  N_OPT = enum.auto()
+  RECRUITS = enum.auto()
+  LOYALTY = enum.auto()
+  MORINTH = enum.auto()
+  ARMOR = enum.auto()
+  SHIELD = enum.auto()
+  CB_PICK = enum.auto()
+  WEAPON = enum.auto()
+  TECH = enum.auto()
+  LEADER1 = enum.auto()
+  BIOTIC = enum.auto()
+  LEADER2 = enum.auto()
+  CREW = enum.auto()
+  ESCORT = enum.auto()
+  WALK_UNPICK = enum.auto()
+  FINAL_SQUAD = enum.auto()
 
 
-class CacheKey(Enum):
-  CARGO_BAY_PICKS = auto()
-  IDEAL_LEADERS = auto()
-  LONG_WALK_UNPICKS = auto()
+class CacheKey(enum.Enum):
+  CARGO_BAY_PICKS = enum.auto()
+  IDEAL_LEADERS = enum.auto()
+  LONG_WALK_UNPICKS = enum.auto()
 
 
-class _DecisionTreePauseException(Exception):
+class DecisionTreePauseException(Exception):
   """Custom exception type for pausing execution of the decision tree."""
   pass
 
 
 # Used for generic type annotations.
-_T = TypeVar('_T')
+T = TypeVar('T')
 
 # Interval in seconds between periodic saves.
 _SAVE_INTERVAL = 5 * 60
@@ -257,31 +231,32 @@ class DecisionTree:
     the outcome dictionary with a 2-tuple containing the number of traversals
     resulting in that outcome and an encoding of the last such traversal."""
     # The encoded outcome is 34 bits wide.
-    outcome = encode_outcome(
+    outcome = encdec.encode_outcome(
       spared = team.spared,
-      dead = team.dead,
       loyalty = team.spared & self.loyal,
       crew = self.memo.get(MemoKey.CREW.name, False)
     )
 
     # The bit-width of the encoded traversal is variable. (min, max) = (40, 62)
-    encoder = Encoder()
-    encoder.encode_ally_loyalty(self.loyal & (team.spared | team.dead))
+    encoder = encdec.Encoder()
+    encoder.encode_ally_optional(team.spared | team.dead)
+    encoder.encode_ally_loyalty(self.loyal)
     encoder.encode_bool(self.memo.get(MemoKey.ARMOR.name, True))
     encoder.encode_bool((shield := self.memo.get(MemoKey.SHIELD.name, True)))
     encoder.encode_bool(self.memo.get(MemoKey.WEAPON.name, True))
     if not shield:
       # This cache key is mandatory if the shield is not upgraded.
       encoder.encode_choices(self.cache[CacheKey.CARGO_BAY_PICKS])
-    encoder.encode_ally_index(ffs(self.memo[MemoKey.TECH.name]) + 1)
+    encoder.encode_ally_index(bits.ffs(self.memo[MemoKey.TECH.name]) + 1)
     leader1: Optional[bool] = self.memo.get(MemoKey.LEADER1.name, None)
     if leader1 is not None:
       encoder.encode_bool(leader1)
       # This cache key is mandatory if an ideal leader is selected.
       encoder.encode_ideal_leaders(self.cache[CacheKey.IDEAL_LEADERS])
-    encoder.encode_ally_index(ffs(self.memo[MemoKey.BIOTIC.name]) + 1)
-    encoder.encode_ally_index(ffs(self.memo[MemoKey.LEADER2.name]) + 1)
-    encoder.encode_ally_index(ffs(self.memo.get(MemoKey.ESCORT.name, 0)) + 1)
+    encoder.encode_ally_index(bits.ffs(self.memo[MemoKey.BIOTIC.name]) + 1)
+    encoder.encode_ally_index(bits.ffs(self.memo[MemoKey.LEADER2.name]) + 1)
+    encoder.encode_ally_index(
+      bits.ffs(self.memo.get(MemoKey.ESCORT.name, 0)) + 1)
     walk_unpick = self.memo.get(MemoKey.WALK_UNPICK.name, None) is not None
     encoder.encode_bool(walk_unpick)
     if walk_unpick:
@@ -302,7 +277,7 @@ class DecisionTree:
   # following methods, their names are stored as the keys for optimal pickling.
   #
 
-  def read_memo(self, key: MemoKey, default: _T) -> _T:
+  def read_memo(self, key: MemoKey, default: T) -> T:
     """Gets the value of the requested memo key on the first call.
     
     On subsequent calls or if the key is not in the memo, returns default.
@@ -317,7 +292,7 @@ class DecisionTree:
     requested a pause or if a periodic save was requested."""
     self.memo[key.name] = value
     if self.pausing:
-      raise _DecisionTreePauseException()
+      raise DecisionTreePauseException()
     if self.needs_save:
       self.save()
       self.needs_save = False
@@ -333,7 +308,7 @@ class DecisionTree:
   def save(self) -> None:
     """Writes memo and outcome data to a file."""
     with open(self.file_path, 'wb') as datafile:
-      pickler = Pickler(datafile)
+      pickler = pickle.Pickler(datafile)
       pickler.dump(self.memo)
       pickler.dump(self.outcomes)
 
@@ -341,7 +316,7 @@ class DecisionTree:
     """Reads memo and outcome data from a file."""
     try:
       with open(self.file_path, 'rb') as datafile:
-        unpickler = Unpickler(datafile)
+        unpickler = pickle.Unpickler(datafile)
         self.memo = unpickler.load()
         self.outcomes = unpickler.load()
     except FileNotFoundError:
@@ -364,26 +339,26 @@ class DecisionTree:
     # Set up a timer to periodically save progress.
     def request_save() -> None:
       self.needs_save = True
-    saver = PeriodicTimer(_SAVE_INTERVAL, request_save)
+    saver = util.PeriodicTimer(_SAVE_INTERVAL, request_save)
     saver.start()
     # Pressing Ctrl-C gracefully pauses the operation.
     def handle_sigint(*_) -> None:
       self.pause()
     try:
-      sigint_handler = signal(SIGINT, handle_sigint)
+      sigint_handler = signal.signal(signal.SIGINT, handle_sigint)
     except ValueError:
       # Expected if not called on the main thread.
-      sigint_handler = SIG_DFL
+      sigint_handler = signal.SIG_DFL
     # Start generating the decision tree.
     try:
       self.choose_recruitment()
-    except _DecisionTreePauseException:
+    except DecisionTreePauseException:
       pass
     finally:
       self.save()
     # Restore the original SIGINT handler, if applicable.
     try:
-      signal(SIGINT, sigint_handler)
+      signal.signal(signal.SIGINT, sigint_handler)
     except ValueError:
       pass  # Expected if not called on the main thread.
     saver.cancel()
@@ -406,8 +381,8 @@ class DecisionTree:
   def choose_recruits(self, n: int) -> None:
     # Iterate through all possible combinations of optional recruitment.
     memo_recruits = self.read_memo(MemoKey.RECRUITS, 0)
-    remaining_recruits = RECRUITABLE.value & ~mtz(memo_recruits)
-    for recruits_tuple in combos(bits(remaining_recruits), n):
+    remaining_recruits = RECRUITABLE.value & ~bits.mtz(memo_recruits)
+    for recruits_tuple in combinations(bits.bits(remaining_recruits), n):
       recruits: int = reduce(or_, recruits_tuple)
       if memo_recruits and recruits != memo_recruits:
         continue
@@ -424,7 +399,7 @@ class DecisionTree:
       # The loyalty of unrecruited allies does not matter. Avoid redundant
       # traversals by "skipping" their bits.
       if self.loyal & LOYALTY_MASK.value & ~team.active:
-        loyalty += fsb(loyalty)
+        loyalty += bits.fsb(loyalty)
         continue
       self.write_memo(MemoKey.LOYALTY, loyalty)
       self.choose_morinth(team)
@@ -448,7 +423,7 @@ class DecisionTree:
       self.choose_shield_upgrade(team)
     # Otherwise, there is a victim.
     self.write_memo(MemoKey.ARMOR, False)
-    victim = get_victim(team.active, DP_NO_ARMOR_UPGRADE)
+    victim = death.get_victim(team.active, death.DP_NO_ARMOR_UPGRADE)
     self.choose_shield_upgrade(team.kill(victim))
     self.clear_memo(MemoKey.ARMOR)
 
@@ -470,7 +445,7 @@ class DecisionTree:
     # the #3 victim will die. Therefore, there are only three possible victims.
     picks: list[int] = []
     for pick in range(3):
-      victim = get_victim(pool, DP_NO_SHIELD_UPGRADE)
+      victim = death.get_victim(pool, death.DP_NO_SHIELD_UPGRADE)
       picks.append(victim)
       if pick >= memo_pick:
         self.write_memo(MemoKey.CB_PICK, pick)
@@ -488,14 +463,14 @@ class DecisionTree:
       self.choose_tech(team)
     # Otherwise, there is a victim.
     self.write_memo(MemoKey.WEAPON, False)
-    victim = get_victim(team.active, DP_NO_WEAPON_UPGRADE)
+    victim = death.get_victim(team.active, death.DP_NO_WEAPON_UPGRADE)
     self.choose_tech(team.kill(victim))
     self.clear_memo(MemoKey.WEAPON)
   
   def choose_tech(self, team: Team) -> None:
     # Iterate through all selectable teammates for the tech specialist.
     cur_tech = self.read_memo(MemoKey.TECH, 0)
-    for tech in bits(team.active & TECHS.value & ~mtz(cur_tech)):
+    for tech in bits.bits(team.active & TECHS.value & ~bits.mtz(cur_tech)):
       self.write_memo(MemoKey.TECH, tech)
       # If the tech specialist is loyal and ideal, their survival depends on the
       # first fireteam leader.
@@ -523,7 +498,7 @@ class DecisionTree:
   def choose_biotic(self, team: Team) -> None:
     # Iterate through all selectable teammates for the biotic specialist.
     cur_biotic = self.read_memo(MemoKey.BIOTIC, 0)
-    for biotic in bits(team.active & BIOTICS.value & ~mtz(cur_biotic)):
+    for biotic in bits.bits(team.active & BIOTICS.value & ~bits.mtz(cur_biotic)):
       self.write_memo(MemoKey.BIOTIC, biotic)
       self.choose_second_leader(team, biotic)
     self.clear_memo(MemoKey.BIOTIC)
@@ -531,7 +506,7 @@ class DecisionTree:
   def choose_second_leader(self, team: Team, biotic: int) -> None:
     # Iterate through all selectable teammates for the second fireteam leader.
     cur_leader = self.read_memo(MemoKey.LEADER2, 0)
-    for leader in bits(team.active & ~(biotic | mtz(cur_leader))):
+    for leader in bits.bits(team.active & ~(biotic | bits.mtz(cur_leader))):
       self.write_memo(MemoKey.LEADER2, leader)
       self.choose_save_the_crew(team, biotic, leader)
     self.clear_memo(MemoKey.LEADER2)
@@ -543,7 +518,7 @@ class DecisionTree:
     # for The Long Walk.
     if not self.read_memo(MemoKey.CREW, False):
       self.choose_walk_squad(team, biotic, leader)
-    if popcount(team.active) > 4:
+    if bits.popcount(team.active) > 4:
       # Escorting the crew will save them.
       self.write_memo(MemoKey.CREW, True)
       self.choose_escort(team, biotic, leader)
@@ -554,8 +529,8 @@ class DecisionTree:
     # Otherwise, they will die.
     cur_escort = self.read_memo(MemoKey.ESCORT, 0)
     remaining_escorts = team.active & ESCORTS.value
-    remaining_escorts &= ~(biotic | leader | mtz(cur_escort))
-    for escort in bits(remaining_escorts):
+    remaining_escorts &= ~(biotic | leader | bits.mtz(cur_escort))
+    for escort in bits.bits(remaining_escorts):
       self.write_memo(MemoKey.ESCORT, escort)
       t = team.spare(escort) if escort & self.loyal else team.kill(escort)
       self.choose_walk_squad(t, biotic, leader)
@@ -569,15 +544,15 @@ class DecisionTree:
     # If your team is too small to merit a meaningful squad selection, there is
     # only one possible outcome.
     pool = team.active & ~(biotic | leader)
-    if popcount(pool) < 3:
-      victim = get_victim(pool, DP_THE_LONG_WALK)
+    if bits.popcount(pool) < 3:
+      victim = death.get_victim(pool, death.DP_THE_LONG_WALK)
       return self.choose_final_squad(team.kill(victim), leader)
     # Otherwise, you may be able to affect who the victim is through your squad
     # selection.
     memo_unpick = self.read_memo(MemoKey.WALK_UNPICK, 0)
     self.cache[CacheKey.LONG_WALK_UNPICKS] = (unpicks := [])
-    for unpick in range(min(popcount(pool) - 1, 3)):
-      victim = get_victim(pool, DP_THE_LONG_WALK)
+    for unpick in range(min(bits.popcount(pool) - 1, 3)):
+      victim = death.get_victim(pool, death.DP_THE_LONG_WALK)
       unpicks.append(victim)
       if unpick >= memo_unpick:
         self.write_memo(MemoKey.WALK_UNPICK, unpick)
@@ -595,11 +570,12 @@ class DecisionTree:
     # 3. There are fewer than four active teammates (including the leader).
     alive = bool(leader & self.loyal & IDEAL_LEADERS.value)
     alive = alive or bool(leader & IMMORTAL_LEADERS.value)
-    if not (alive or popcount(team.active) < 4):
+    if not (alive or bits.popcount(team.active) < 4):
       team = team.kill(leader)
     # Iterate through all possible final squads.
     memo_squad = self.read_memo(MemoKey.FINAL_SQUAD, 0)
-    for squad_tuple in combos(bits(team.active & ~mtz(memo_squad)), 2):
+    squads = combinations(bits.bits(team.active & ~bits.mtz(memo_squad)), 2)
+    for squad_tuple in squads:
       squad: int = reduce(or_, squad_tuple)
       if memo_squad and squad != memo_squad:
         continue
@@ -607,10 +583,10 @@ class DecisionTree:
       self.write_memo(MemoKey.FINAL_SQUAD, squad)
       # The remaining active teammates form the defense team.
       defense_team = team.active & ~squad
-      death_toll = get_defense_toll(defense_team, self.loyal)
+      death_toll = death.get_defense_toll(defense_team, self.loyal)
       victims = 0
       for _ in range(death_toll):
-        victims |= get_defense_victim(defense_team & ~victims, self.loyal)
+        victims |= death.get_defense_victim(defense_team & ~victims, self.loyal)
       # Any member of your squad that is not loyal will die.
       victims |= squad & ~self.loyal
       # Any active teammates at this point have survived.

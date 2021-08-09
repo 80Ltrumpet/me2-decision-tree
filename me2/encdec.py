@@ -87,9 +87,6 @@ def encode_outcome(**outcome) -> int:
   loyalty = outcome['spared'] & outcome['loyalty']
   encoder = Encoder()
   encoder.encode_ally(outcome['spared'])
-  # TODO: Optional allies that are not recruited are as good as dead, so they
-  #       don't actually affect the outcome.
-  encoder.encode_ally_optional(outcome['dead'])
   encoder.encode_ally_loyalty(loyalty)
   encoder.encode_bool(outcome['crew'])
   return encoder.result
@@ -156,7 +153,6 @@ def decode_outcome(encoded: int) -> dict[str, Any]:
   outcome: dict[str, Any] = {}
   decoder = Decoder(encoded)
   outcome['spared'] = (spared := decoder.decode_ally())
-  outcome['dead'] = decoder.decode_ally_optional() | ally.REQUIRED & ~spared
   outcome['loyalty'] = decoder.decode_ally_loyalty() | Ally.Morinth & spared
   outcome['crew'] = decoder.decode_bool()
   return outcome
