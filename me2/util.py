@@ -41,8 +41,12 @@ class SigintHandler:
   
   If this is used on a child thread, it will have no effect.
   """
-  def __init__(self, handler: signal._HANDLER):
-    """Sets the SIGINT handler."""
+  def __init__(self, handler):
+    """Sets the SIGINT handler.
+    
+    See https://docs.python.org/3/library/signal.html#signal.signal for more
+    information on acceptable handler arguments.
+    """
     self.handler = handler
     self.original = signal.SIG_DFL
 

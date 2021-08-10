@@ -40,7 +40,7 @@ def ffs(x: int, start: Literal[0, 1] = 0) -> int:
   >>> ffs(0xb00)
   8
   """
-  bit = start
+  bit: int = start
   mask = 1
   while mask <= x:
     if mask & x:
