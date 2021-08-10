@@ -1,14 +1,16 @@
 # Interesting Facts
 
 *   The decision tree covered 39,600,351,708 traversals!
-*   There are 697,887 *possible* outcomes of 1,417,176 *potential* outcomes.
+*   There are 697,887 *achievable* outcomes of 1,417,176 *potential* outcomes.
     *   That means there are 719,289 outcomes that are impossible to achieve.
-*   111 outcomes are uniquely achievable.
+*   111 outcomes are uniquely achievable (i.e., they have only one traversal).
     *   These outcomes have the following in common:
-        *   Miranda survives.
-        *   Miranda is loyal.
+        *   Miranda survives and is loyal.
         *   Garrus is *not* loyal.
         *   Jacob is *not* loyal.
+    *   Note that Garrus, Jacob, and Miranda are all *ideal leaders*. That is,
+        if they are loyal when selected as a leader during the suicide mission,
+        a death will be avoided.
 *   The greatest number of traversals for any outcome is 62,147,162.
     *   Unsurprisingly, that outcome spares only loyal Jacob, loyal Miranda,
         and the crew.
@@ -38,5 +40,8 @@ Tali | 0.425 | 0.299
 Thane | 0.422 | 0.297
 Jack | 0.389 | 0.274
 
-*NOTE: Morinth is not included in the table above due to her dependence on
-Samara's loyalty mission.*
+_NOTE: Morinth is not included in the table above due to her dependence on
+Samara's loyalty mission._
+
+_NOTE: Survival implies recruitment. That is, if an ally is not recruited, they
+are **not** regarded as survived._
