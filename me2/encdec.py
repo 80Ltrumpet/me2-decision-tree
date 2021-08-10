@@ -77,8 +77,8 @@ class Encoder:
     first_choice = choices[0] if choices and choices[0] else 0
     second_choice = choices[1] if first_choice and len(choices) > 1 else 0
     self.encode_bool(len(choices) < 3)
-    self.encode_ally_index(bits.ffs(first_choice) + 1)
-    self.encode_ally_index(bits.ffs(second_choice) + 1)
+    self.encode_ally_index(bits.ffs(first_choice, 1))
+    self.encode_ally_index(bits.ffs(second_choice, 1))
 
 
 def encode_outcome(spared: int, loyalty: int, crew: bool) -> int:

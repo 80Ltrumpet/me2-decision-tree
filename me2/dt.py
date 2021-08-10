@@ -214,16 +214,15 @@ class DecisionTree:
     if not shield:
       # This cache key is mandatory if the shield is not upgraded.
       encoder.encode_choices(self.cache[CacheKey.CARGO_BAY_PICKS])
-    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.TECH]) + 1)
+    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.TECH], 1))
     leader1: Optional[bool] = self.checkpoints.get(Checkpoint.LEADER1, None)
     if leader1 is not None:
       encoder.encode_bool(leader1)
       # This cache key is mandatory if a non-ideal tech is selected.
       encoder.encode_ideal_leaders(self.cache[CacheKey.IDEAL_LEADERS])
-    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.BIOTIC]) + 1)
-    encoder.encode_ally_index(
-      bits.ffs(self.checkpoints[Checkpoint.LEADER2]) + 1)
-    encoder.encode_ally_index(bits.ffs(escort) + 1)
+    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.BIOTIC], 1))
+    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.LEADER2], 1))
+    encoder.encode_ally_index(bits.ffs(escort, 1))
     walk_unpick = self.checkpoints.get(Checkpoint.WALK_UNPICK, None) is not None
     encoder.encode_bool(walk_unpick)
     if walk_unpick:

@@ -29,8 +29,8 @@ class EncoderTest(unittest.TestCase):
     self.assertEqual(self.encoder.result, 0x601)
 
   def test_encode_ally_index(self):
-    self.encoder.encode_ally_index(ffs(Ally.Samara.value) + 1)
-    self.encoder.encode_ally_index(ffs(Ally.Miranda.value) + 1)
+    self.encoder.encode_ally_index(ffs(Ally.Samara.value, 1))
+    self.encoder.encode_ally_index(ffs(Ally.Miranda.value, 1))
     self.assertEqual(self.encoder.result, 0x39)
 
   def test_encode_squad(self):

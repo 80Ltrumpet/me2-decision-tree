@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Generator
+from typing import Generator, Literal
 
 def bits(x: int) -> Generator[int, None, None]:
   """Generates an int with one bit set for each bit set in x.
@@ -31,22 +31,23 @@ def bit_indices(x: int) -> Generator[int, None, None]:
     index += 1
     mask <<= 1
 
-def ffs(x: int) -> int:
-  """Finds the position of the first set bit in x or -1 if no bits are set.
+def ffs(x: int, start: Literal[0, 1] = 0) -> int:
+  """Finds the position of the first set bit in x or start - 1 if no bits are
+  set.
   
   >>> ffs(42)
   1
   >>> ffs(0xb00)
   8
   """
-  bit = 0
+  bit = start
   mask = 1
   while mask <= x:
     if mask & x:
       return bit
     bit += 1
     mask <<= 1
-  return -1
+  return start - 1
 
 def fsb(x: int) -> int:
   """Returns the value of the first set bit in x or 0 if no bits are set.
