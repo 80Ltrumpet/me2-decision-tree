@@ -1,6 +1,6 @@
 from me2.ally import Ally
 from me2.bits import ffs
-from me2.encdec import Decoder, Encoder, decode_outcome, encode_outcome
+from me2.encdec import DecodedOutcome, Decoder, Encoder, decode_outcome, encode_outcome
 import unittest
 
 class EncoderTest(unittest.TestCase):
@@ -100,12 +100,12 @@ class DecoderTest(unittest.TestCase):
 class OutcomeDecoderTest(unittest.TestCase):
   def test_result(self):
     self.assertEqual(decode_outcome(0x20940cb),
-      {
-        'spared': Ally.Garrus | Ally.Jacob | Ally.Jack | Ally.Kasumi | \
-                  Ally.Legion,
-        'loyalty': Ally.Jacob | Ally.Jack | Ally.Kasumi,
-        'crew': True
-      }
+      DecodedOutcome(
+        spared = (Ally.Garrus | Ally.Jacob | Ally.Jack | Ally.Kasumi |
+                  Ally.Legion),
+        loyalty = Ally.Jacob | Ally.Jack | Ally.Kasumi,
+        crew = True
+      )
     )
 
 

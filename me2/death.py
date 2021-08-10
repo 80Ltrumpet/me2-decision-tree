@@ -1,4 +1,6 @@
 import statistics
+from functools import reduce
+from operator import or_ as op_or
 from typing import Callable, TypeVar
 
 from .ally import Ally
@@ -50,6 +52,10 @@ _DP_DEFENSE = _value_list(
   Ally.Grunt
 )
 
+class UnexpectedlyVictimlessError(Exception):
+  """Custom error type for a call to get_victim() resulting in zero victims."""
+  pass
+
 def get_victim(team: int, priority: list[int]) -> int:
   """Selects the teammate who should die based on the given priority."""
   for ally in priority:
@@ -57,7 +63,9 @@ def get_victim(team: int, priority: list[int]) -> int:
       return ally
   # It should be impossible to encounter a situation where none of the teammates
   # are in the priority list.
-  raise RuntimeError("No victim")
+  priority_value = reduce(op_or, priority)
+  raise UnexpectedlyVictimlessError(
+    f'No victim ({hex(team)} & {hex(priority_value)} == 0)')
 
 
 # Loyal allies who are left behind to defend during the final battle are
