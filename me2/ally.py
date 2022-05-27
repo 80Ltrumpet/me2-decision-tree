@@ -1,6 +1,12 @@
+#
+# Copyright (c) 2022 Andrew Lehmer
+#
+# Distributed under the MIT License.
+#
+
 from __future__ import annotations
+from collections.abc import Generator
 import enum
-from typing import Generator
 
 from . import bits
 
@@ -26,19 +32,20 @@ class Ally(enum.Flag):
   # Place Morinth at the end for optimization.
   Morinth = enum.auto()
 
-  def conj(self, conjunction: str = 'and') -> str:
+  def conj(self, conjunction: str = "and") -> str:
     """Converts this Ally into a human-readable string with the specified
     conjunction, if applicable."""
     if self.name:
       return self.name
     if self.value == 0:
-      return 'nobody'
+      return "nobody"
     if self.value == bits.mask(len(Ally)):
-      return 'everyone'
-    names = sorted(ally.name for ally in self)
+      return "everyone"
+    # The condition in the generator expression is necessary to pass lint.
+    names = sorted(ally.name for ally in self if ally.name)
     if len(names) == 2:
-      return f' {conjunction} '.join(names)
-    return f'{", ".join(names[:-1])}, {conjunction} {names[-1]}'
+      return f" {conjunction} ".join(names)
+    return f"{', '.join(names[:-1])}, {conjunction} {names[-1]}"
 
   def __len__(self) -> int:
     """Counts the number of allies represented by this Ally."""

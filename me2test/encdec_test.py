@@ -1,6 +1,12 @@
+#
+# Copyright (c) 2022 Andrew Lehmer
+#
+# Distributed under the MIT License.
+#
+
 from me2.ally import Ally
-from me2.bits import ffs
-from me2.encdec import DecodedOutcome, Decoder, Encoder, decode_outcome, encode_outcome
+from me2.encdec import DecodedOutcome, Decoder, Encoder
+from me2.encdec import decode_outcome, encode_outcome
 import unittest
 
 class EncoderTest(unittest.TestCase):
@@ -13,9 +19,9 @@ class EncoderTest(unittest.TestCase):
     self.encoder.encode_bool(True)
     self.assertEqual(self.encoder.result, 2)
 
-  def test_encode_ally(self):
-    self.encoder.encode_ally(Ally.Garrus.value)
-    self.encoder.encode_ally(Ally.Tali.value)
+  def test_encode_ally_value(self):
+    self.encoder.encode_ally_value(Ally.Garrus.value)
+    self.encoder.encode_ally_value(Ally.Tali.value)
     self.assertEqual(self.encoder.result, 0x400001)
 
   def test_encode_ally_loyalty(self):
@@ -28,9 +34,9 @@ class EncoderTest(unittest.TestCase):
     self.encoder.encode_ally_optional((Ally.Legion | Ally.Kasumi).value)
     self.assertEqual(self.encoder.result, 0x601)
 
-  def test_encode_ally_index(self):
-    self.encoder.encode_ally_index(ffs(Ally.Samara.value, 1))
-    self.encoder.encode_ally_index(ffs(Ally.Miranda.value, 1))
+  def test_encode_ally_value_as_index(self):
+    self.encoder.encode_ally_value_as_index(Ally.Samara.value)
+    self.encoder.encode_ally_value_as_index(Ally.Miranda.value)
     self.assertEqual(self.encoder.result, 0x39)
 
   def test_encode_squad(self):
@@ -109,5 +115,5 @@ class OutcomeDecoderTest(unittest.TestCase):
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   unittest.main()

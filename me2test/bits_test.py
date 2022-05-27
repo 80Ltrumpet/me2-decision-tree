@@ -1,3 +1,9 @@
+#
+# Copyright (c) 2022 Andrew Lehmer
+#
+# Distributed under the MIT License.
+#
+
 from me2.bits import *
 import unittest
 
@@ -62,5 +68,5 @@ class PopcountTest(unittest.TestCase):
     self.assertEqual(popcount(0), 0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
   unittest.main()

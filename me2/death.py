@@ -1,7 +1,15 @@
+#
+# Copyright (c) 2022 Andrew Lehmer
+#
+# Distributed under the MIT License.
+#
+
 import statistics
-from functools import reduce
-from operator import or_ as op_or
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from functools import partial, reduce
+from itertools import chain
+from operator import or_ as op_or, and_ as op_and
+from typing import TypeVar
 
 from .ally import Ally
 from . import bits
@@ -12,15 +20,14 @@ def _value_list(*allies: Ally) -> list[int]:
   objects."""
   return [ally.value for ally in allies]
 
-_T = TypeVar('_T')
+_T = TypeVar("_T")
 def _value_dict(mapping: dict[Ally, _T]) -> dict[int, _T]:
-  """Constructs a dictionary with integer keys equivalent to the given mapping
-  with Ally enumeration objects as keys."""
+  """Constructs a dictionary with integer keys equivalent to the given
+  mapping's Ally keys."""
   return {ally.value: value for ally, value in mapping.items()}
 
 # The following lists indicate the order in which allies are selected for
-# death when certain conditions are met.
-# Reference: https://external-preview.redd.it/7SeMlQbU-xFC9TjKurncqx1y8NH3RJiolYRqFAoXfWg.jpg?auto=webp&s=a57ad480a357234ec7fa5f865b00b60b95670df0
+# death (i.e., the "death priority") when certain conditions are met.
 
 # The "Silaris Armor" upgrade was not purchased.
 DP_NO_ARMOR_UPGRADE = _value_list(Ally.Jack)
@@ -37,14 +44,14 @@ DP_NO_WEAPON_UPGRADE = _value_list(
   Ally.Morinth
 )
 
-# Chose a disloyal or non-specialist biotic for The Long Walk.
+# A disloyal or non-specialist biotic was chosen for The Long Walk.
 DP_THE_LONG_WALK = _value_list(
   Ally.Thane, Ally.Jack, Ally.Garrus, Ally.Legion, Ally.Grunt, Ally.Samara,
   Ally.Jacob, Ally.Mordin, Ally.Tali, Ally.Kasumi, Ally.Zaeed, Ally.Morinth
 )
 
-# The average defense score is too low for the defending allies during the final
-# battle. Unlike the other death priority lists, non-loyal allies are
+# The average defense score was too low for the defending allies during the
+# final battle. Unlike the other death priority lists, non-loyal allies are
 # prioritized above loyal allies (see get_defense_victims()).
 _DP_DEFENSE = _value_list(
   Ally.Mordin, Ally.Tali, Ally.Kasumi, Ally.Jack, Ally.Miranda, Ally.Jacob,
@@ -58,14 +65,12 @@ class UnexpectedlyVictimlessError(Exception):
 
 def get_victim(team: int, priority: list[int]) -> int:
   """Selects the teammate who should die based on the given priority."""
-  for ally in priority:
-    if ally & team:
-      return ally
+  if (victim := next(filter(partial(op_and, team), priority), 0)):
+    return victim
   # It should be impossible to encounter a situation where none of the teammates
   # are in the priority list.
-  priority_value = reduce(op_or, priority)
   raise UnexpectedlyVictimlessError(
-    f'No victim ({hex(team)} & {hex(priority_value)} == 0)')
+    f"No victim ({hex(team)} & {hex(reduce(op_or, priority, 0))} == 0)")
 
 
 # Loyal allies who are left behind to defend during the final battle are
@@ -92,7 +97,7 @@ _DEFENSE_SCORE = _value_dict({
 # last formula in this list.
 _DEFENSE_TOLL_FORMULAE: list[Callable[[float], int]] = [
   int,
-  lambda x: 1 if x < 2 else 0,
+  (lambda x: 1 if x < 2 else 0),
   (lambda x: 2 if x == 0
         else 1 if x < 2
         else 0),
@@ -110,38 +115,23 @@ _DEFENSE_TOLL_FORMULAE: list[Callable[[float], int]] = [
         else 1 if x < 2
         else 0)
 ]
+_DTF_LAST_INDEX = len(_DEFENSE_TOLL_FORMULAE) - 1
 
 def _get_defense_toll(team: int, loyal: int) -> int:
   """Computes the death toll for the defense team."""
   if not (team_size := bits.popcount(team)):
-    raise ValueError('Zero defending allies')
+    raise ValueError("Zero defending allies")
   # Compute the average defense score. Disloyal allies' scores are reduced.
-  score = statistics.fmean(
-    _DEFENSE_SCORE[a] - bool(a & ~loyal) for a in bits.bits(team))
-  if team_size < len(_DEFENSE_TOLL_FORMULAE):
-    return _DEFENSE_TOLL_FORMULAE[team_size](score)
-  return _DEFENSE_TOLL_FORMULAE[-1](score)
+  score_for = lambda ally: _DEFENSE_SCORE[ally] - bool(ally & ~loyal)
+  score = statistics.fmean(score_for(ally) for ally in bits.bits(team))
+  formula_index = min(team_size, _DTF_LAST_INDEX)
+  return _DEFENSE_TOLL_FORMULAE[formula_index](score)
 
-def get_defense_victims(defense_team: int, loyal: int) -> int:
+def get_defense_victims(team: int, loyal: int) -> int:
   """Selects the defending teammates who should die."""
-  victims = 0
-  toll = _get_defense_toll(defense_team, loyal)
-  if toll == 0:
-    return victims
-  # Disloyal allies are prioritized over loyal ones.
-  for ally in _DP_DEFENSE:
-    if ally & defense_team & ~loyal:
-      victims |= ally
-      toll -= 1
-      if toll == 0:
-        break
-  else:
-    # NOTE: get_victim() is intentionally not reused here to avoid redundant
-    # iterations of _DP_DEFENSE.
-    for ally in _DP_DEFENSE:
-      if ally & defense_team:
-        victims |= ally
-        toll -= 1
-        if toll == 0:
-          break
-  return victims
+  toll = _get_defense_toll(team, loyal)
+  # Disloyal teammates are chosen as victims before loyal ones.
+  disloyal_filter = filter(partial(op_and, team & ~loyal), _DP_DEFENSE)
+  loyal_filter = filter(partial(op_and, team & loyal), _DP_DEFENSE)
+  priority = chain(disloyal_filter, loyal_filter)
+  return reduce(op_or, (ally for _, ally in zip(range(toll), priority)), 0)

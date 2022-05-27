@@ -1,3 +1,9 @@
+#
+# Copyright (c) 2022 Andrew Lehmer
+#
+# Distributed under the MIT License.
+#
+
 from __future__ import annotations
 import enum
 from functools import reduce
@@ -18,13 +24,13 @@ def describe_outcome(encoded: int, *, brief: bool = False) -> str:
   ally_count = len(spared)
 
   if brief:
-    x_allies = f'{ally_count} all{"ies" if ally_count != 1 else "y"}'
-    and_the_crew = ' and the crew ' if crew else ' '
-    return f'{x_allies}{and_the_crew}survived.'
+    x_allies = f"{ally_count} all{'ies' if ally_count != 1 else 'y'}"
+    and_the_crew = " and the crew" if crew else ""
+    return f"{x_allies}{and_the_crew} survived."
 
-  output  = f'Survived: ({ally_count}) {spared}\n'
-  output += f'Loyal:    {loyalty}\n'
-  return output + f'Crew:     {"survived" if crew else "dead"}'
+  output  = f"Survived: ({ally_count}) {spared}\n"
+  output += f"Loyal:    {loyalty}\n"
+  return output + f"Crew:     {'survived' if crew else 'dead'}"
 
 
 def describe_traversal(traversal: int) -> str:
@@ -37,9 +43,13 @@ def describe_traversal(traversal: int) -> str:
   upgraded_armor = decoder.decode_bool()
   upgraded_shield = decoder.decode_bool()
   upgraded_weapon = decoder.decode_bool()
+  cbs_invert = False
+  cbs_picks: list[Ally] = []
   if not upgraded_shield:
     cbs_invert, cbs_picks = decoder.decode_choices()
   tech = decoder.decode_ally_index()
+  leader1 = False
+  ideal_leaders = NOBODY
   has_leader1 = bool(tech & loyal & IDEAL_TECHS)
   if has_leader1:
     leader1 = decoder.decode_bool()
@@ -47,75 +57,77 @@ def describe_traversal(traversal: int) -> str:
   biotic = decoder.decode_ally_index()
   leader2 = decoder.decode_ally_index()
   escort = decoder.decode_ally_index()
+  tlw_invert = False
+  tlw_unpicks: list[Ally] = []
   has_tlw_unpicks = decoder.decode_bool()
   if has_tlw_unpicks:
     tlw_invert, tlw_unpicks = decoder.decode_choices()
   final_squad = decoder.decode_squad()
 
-  output = ''
+  output = ""
   if upgraded_armor and upgraded_shield and upgraded_weapon:
-    output += 'Upgrade everything.\n'
+    output += "Upgrade everything.\n"
   elif not (upgraded_armor or upgraded_shield or upgraded_weapon):
-    output += 'No Normandy upgrades.\n'
+    output += "No Normandy upgrades.\n"
   else:
     upgrade_map = {
-      'Silaris Armor': upgraded_armor,
-      'Cyclonic Shields': upgraded_shield,
-      'Thanix Cannon': upgraded_weapon
+      "Silaris Armor": upgraded_armor,
+      "Cyclonic Shields": upgraded_shield,
+      "Thanix Cannon": upgraded_weapon
     }
-    output += f'Upgrade: {", ".join(k for k, v in upgrade_map.items() if v)}\n'
+    output += f"Upgrade: {', '.join(k for k, v in upgrade_map.items() if v)}\n"
 
-  output += f'Recruit: {recruits}\n'
+  output += f"Recruit: {recruits}\n"
 
   if loyal == (recruits | REQUIRED) & LOYALTY_MASK:
-    output += 'Do all loyalty missions.\n'
+    output += "Do all loyalty missions.\n"
   elif not loyal:
-    output += 'Do no loyalty missions.\n'
+    output += "Do no loyalty missions.\n"
   else:
-    output += f'Loyalty Missions: {loyal}\n'
+    output += f"Loyalty Missions: {loyal}\n"
   
   if not upgraded_shield:
-    output += 'For the cargo bay squad, '
+    output += "For the cargo bay squad, "
     cbs_take = reduce(op_or,
       cbs_picks[:-1] if cbs_invert else cbs_picks, NOBODY)
     cbs_leave = cbs_picks[-1] if cbs_invert else NOBODY
     if cbs_take:
-      output += f'pick {cbs_take}'
+      output += f"pick {cbs_take}"
       if cbs_leave:
-        output += ' and '
+        output += " and "
     if cbs_leave:
-      output += f'make sure to leave {cbs_leave} behind'
-    output += '.\n'
+      output += f"make sure to leave {cbs_leave} behind"
+    output += ".\n"
   
-  output += f'Choose {tech} as the tech specialist.\n'
+  output += f"Choose {tech} as the tech specialist.\n"
   if has_leader1:
-    output += 'Choose '
+    output += "Choose "
     if not leader1:
-      output += 'anyone except '
-    output += f'{ideal_leaders.conj("or")} to lead the second fireteam.\n'
+      output += "anyone except "
+    output += f"{ideal_leaders.conj('or')} to lead the second fireteam.\n"
   else:
-    output += 'The second fireteam leader does not matter.\n'
+    output += "The second fireteam leader does not matter.\n"
 
-  output += f'Choose {biotic} as the biotic specialist.\n'
-  output += f'Choose {leader2} to lead the diversion team.\n'
+  output += f"Choose {biotic} as the biotic specialist.\n"
+  output += f"Choose {leader2} to lead the diversion team.\n"
   if escort:
-    output += f'Send {escort} to escort the crew.\n'
+    output += f"Send {escort} to escort the crew.\n"
   else:
-    output += 'Do not send anyone to escort the crew.\n'
+    output += "Do not send anyone to escort the crew.\n"
   if has_tlw_unpicks:
-    output += 'For the squad in the biotic shield, '
+    output += "For the squad in the biotic shield, "
     tlw_take = tlw_unpicks[-1] if tlw_invert else NOBODY
     tlw_leave = reduce(op_or,
       tlw_unpicks[:-1] if tlw_invert else tlw_unpicks, NOBODY)
     if tlw_take:
-      output += f'pick {tlw_take}'
+      output += f"pick {tlw_take}"
       if tlw_leave:
-        output += ' and '
+        output += " and "
     if tlw_leave:
-      output += f'make sure to leave {tlw_leave} behind'
-    output += '.\n'
+      output += f"make sure to leave {tlw_leave} behind"
+    output += ".\n"
 
-  output += f'Pick {final_squad} for your final squad.\n'
+  output += f"Pick {final_squad} for your final squad.\n"
   return output
 
 
@@ -153,7 +165,7 @@ class DecisionTreePauseException(Exception):
 _SAVE_INTERVAL = 5 * 60
 
 class DecisionTree:
-  """Generates outcomes and traversals for Mass Effect 2's suicide mission.
+  """Generates outcomes and traversals for Mass Effect 2's final mission.
   
   This class performs a depth-first traversal of all possible combinations of
   decisions that affect the survival of allies in Mass Effect 2's final
@@ -168,7 +180,7 @@ class DecisionTree:
     """Constructs a decision tree and optionally loads data from the file at the
     given file_path."""
     if not file_path:
-      raise ValueError('A decision tree file path must be provided')
+      raise ValueError("A decision tree file path must be provided")
     # Stores checkpoint data that is necessary for traversal encoding but not
     # ideal for restoring iteration state.
     self.cache: dict[CacheKey, Any] = {}
@@ -193,8 +205,7 @@ class DecisionTree:
     resulting in that outcome and an encoding of the last such traversal."""
     # Check if the escort survived.
     escort = self.checkpoints.get(Checkpoint.ESCORT, 0)
-    if escort & self.loyal:
-      team |= escort
+    team |= escort & self.loyal
 
     # The encoded outcome is 26 bits long.
     outcome = encdec.encode_outcome(
@@ -214,15 +225,15 @@ class DecisionTree:
     if not shield:
       # This cache key is mandatory if the shield is not upgraded.
       encoder.encode_choices(self.cache[CacheKey.CARGO_BAY_PICKS])
-    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.TECH], 1))
+    encoder.encode_ally_value_as_index(self.checkpoints[Checkpoint.TECH])
     leader1: Optional[bool] = self.checkpoints.get(Checkpoint.LEADER1, None)
     if leader1 is not None:
       encoder.encode_bool(leader1)
       # This cache key is mandatory if a non-ideal tech is selected.
       encoder.encode_ideal_leaders(self.cache[CacheKey.IDEAL_LEADERS])
-    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.BIOTIC], 1))
-    encoder.encode_ally_index(bits.ffs(self.checkpoints[Checkpoint.LEADER2], 1))
-    encoder.encode_ally_index(bits.ffs(escort, 1))
+    encoder.encode_ally_value_as_index(self.checkpoints[Checkpoint.BIOTIC])
+    encoder.encode_ally_value_as_index(self.checkpoints[Checkpoint.LEADER2])
+    encoder.encode_ally_value_as_index(escort)
     walk_unpick = self.checkpoints.get(Checkpoint.WALK_UNPICK, None) is not None
     encoder.encode_bool(walk_unpick)
     if walk_unpick:
@@ -255,7 +266,7 @@ class DecisionTree:
 
   def save(self):
     """Writes checkpoints and outcome data to a file."""
-    with open(self.file_path, 'wb') as datafile:
+    with open(self.file_path, "wb") as datafile:
       pickler = pickle.Pickler(datafile)
       pickler.dump(self.checkpoints)
       pickler.dump(self.outcomes)
@@ -263,7 +274,7 @@ class DecisionTree:
   def load(self):
     """Reads checkpoints and outcome data from a file."""
     try:
-      with open(self.file_path, 'rb') as datafile:
+      with open(self.file_path, "rb") as datafile:
         unpickler = pickle.Unpickler(datafile)
         self.checkpoints = unpickler.load()
         self.outcomes = unpickler.load()
@@ -319,18 +330,18 @@ class DecisionTree:
     for n in range(n_start, len(RECRUITABLE) + 1):
       self.set_checkpoint(Checkpoint.N_OPT, n)
       self._choose_recruits(n)
-    # This signals that all outcomes have been generated.
+    # Signal that all outcomes have been generated.
     self.set_checkpoint(Checkpoint.N_OPT, 0)
 
   def _choose_recruits(self, n: int):
     # Iterate through all possible combinations of optional recruitment.
-    ckpt_recruits = self.checkpoints.get(Checkpoint.RECRUITS, 0)
+    ckpt_recruits = self.checkpoints.get(Checkpoint.RECRUITS, NOBODY.value)
     remaining_recruits = RECRUITABLE.value & ~bits.mtz(ckpt_recruits)
     for recruits_tuple in combinations(bits.bits(remaining_recruits), n):
       recruits: int = reduce(op_or, recruits_tuple)
       if ckpt_recruits and recruits != ckpt_recruits:
         continue
-      ckpt_recruits = 0
+      ckpt_recruits = NOBODY.value
       self.set_checkpoint(Checkpoint.RECRUITS, recruits)
       self._choose_loyalty_missions(recruits | REQUIRED.value)
     del self.checkpoints[Checkpoint.RECRUITS]
@@ -382,7 +393,7 @@ class DecisionTree:
     del self.checkpoints[Checkpoint.SHIELD]
 
   def _choose_cargo_bay_squad(self, team: int):
-    ckpt_pick = self.checkpoints.get(Checkpoint.CB_PICK, 0)
+    ckpt_pick = self.checkpoints.get(Checkpoint.CB_PICK, NOBODY.value)
     # If you do *not* pick the #1 victim, they will die. If you pick the #1
     # victim but not the #2 victim, the #2 victim will die. If you pick both,
     # the #3 victim will die. Therefore, there are only three possible victims.
@@ -413,7 +424,7 @@ class DecisionTree:
   
   def _choose_tech(self, team: int):
     # Iterate through all selectable teammates for the tech specialist.
-    cur_tech = self.checkpoints.get(Checkpoint.TECH, 0)
+    cur_tech = self.checkpoints.get(Checkpoint.TECH, NOBODY.value)
     for tech in bits.bits(team & TECHS.value & ~bits.mtz(cur_tech)):
       self.set_checkpoint(Checkpoint.TECH, tech)
       # If the tech specialist is loyal and ideal, their survival depends on the
@@ -441,7 +452,7 @@ class DecisionTree:
 
   def _choose_biotic(self, team: int):
     # Iterate through all selectable teammates for the biotic specialist.
-    cur_biotic = self.checkpoints.get(Checkpoint.BIOTIC, 0)
+    cur_biotic = self.checkpoints.get(Checkpoint.BIOTIC, NOBODY.value)
     for biotic in bits.bits(team & BIOTICS.value & ~bits.mtz(cur_biotic)):
       self.set_checkpoint(Checkpoint.BIOTIC, biotic)
       self._choose_second_leader(team, biotic)
@@ -449,7 +460,7 @@ class DecisionTree:
 
   def _choose_second_leader(self, team: int, biotic: int):
     # Iterate through all selectable teammates for the second fireteam leader.
-    cur_leader = self.checkpoints.get(Checkpoint.LEADER2, 0)
+    cur_leader = self.checkpoints.get(Checkpoint.LEADER2, NOBODY.value)
     for leader in bits.bits(team & ~(biotic | bits.mtz(cur_leader))):
       self.set_checkpoint(Checkpoint.LEADER2, leader)
       self._choose_save_the_crew(team, biotic, leader)
@@ -471,7 +482,7 @@ class DecisionTree:
   def _choose_escort(self, team: int, biotic: int, leader: int):
     # If an escort is selected, they will be spared if they are loyal.
     # Otherwise, they will die.
-    cur_escort = self.checkpoints.get(Checkpoint.ESCORT, 0)
+    cur_escort = self.checkpoints.get(Checkpoint.ESCORT, NOBODY.value)
     remaining_escorts = team & ESCORTS.value
     remaining_escorts &= ~(biotic | leader | bits.mtz(cur_escort))
     for escort in bits.bits(remaining_escorts):
@@ -494,8 +505,9 @@ class DecisionTree:
       return self._choose_final_squad(team & ~victim, leader)
     # Otherwise, you may be able to affect who the victim is through your squad
     # selection.
-    ckpt_unpick = self.checkpoints.get(Checkpoint.WALK_UNPICK, 0)
-    self.cache[CacheKey.LONG_WALK_UNPICKS] = (unpicks := [])
+    ckpt_unpick = self.checkpoints.get(Checkpoint.WALK_UNPICK, NOBODY.value)
+    unpicks: list[int] = []
+    self.cache[CacheKey.LONG_WALK_UNPICKS] = unpicks
     for unpick in range(min(bits.popcount(victim_pool) - 1, 3)):
       victim = death.get_victim(victim_pool, death.DP_THE_LONG_WALK)
       unpicks.append(victim)
@@ -510,21 +522,21 @@ class DecisionTree:
 
   def _choose_final_squad(self, team: int, leader: int):
     # The leader of the second fireteam will not die under several conditions:
-    # 1. They are loyal and ideal
-    # 2. They are special-cased (Miranda)
+    # 1. They are loyal and ideal.
+    # 2. They are special-cased (Miranda).
     # 3. There are fewer than four active teammates (including the leader).
     alive = bool(leader & self.loyal & IDEAL_LEADERS.value)
     alive = alive or bool(leader & IMMORTAL_LEADERS.value)
     if not (alive or bits.popcount(team) < 4):
       team &= ~leader
     # Iterate through all possible final squads.
-    ckpt_squad = self.checkpoints.get(Checkpoint.FINAL_SQUAD, 0)
+    ckpt_squad = self.checkpoints.get(Checkpoint.FINAL_SQUAD, NOBODY.value)
     squads = combinations(bits.bits(team & ~bits.mtz(ckpt_squad)), 2)
     for squad_tuple in squads:
       squad: int = reduce(op_or, squad_tuple)
       if ckpt_squad and squad != ckpt_squad:
         continue
-      ckpt_squad = 0
+      ckpt_squad = NOBODY.value
       self.set_checkpoint(Checkpoint.FINAL_SQUAD, squad)
       # The remaining active teammates form the defense team.
       victims = death.get_defense_victims(team & ~squad, self.loyal)

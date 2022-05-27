@@ -1,8 +1,15 @@
+#
+# Copyright (c) 2022 Andrew Lehmer
+#
+# Distributed under the MIT License.
+#
+
 from __future__ import annotations
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 import signal
 from threading import Timer
-from typing import Any, Callable, Iterable, Mapping, Optional
+from typing import Any, Optional
 
 class PeriodicTimer:
   """Periodically calls a function with a specified interval in seconds."""

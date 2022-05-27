@@ -1,3 +1,9 @@
+#
+# Copyright (c) 2022 Andrew Lehmer
+#
+# Distributed under the MIT License.
+#
+
 from typing import NamedTuple
 
 from . import ally, bits
@@ -18,18 +24,20 @@ class Encoder:
     self.result = 0
     self.length = 0
 
-  def _append(self, bits: int, length: int):
-    self.result |= bits << self.length
+  def _append(self, value: int, length: int):
+    """Appends the least significant length bits of value to the most
+    significant end of the encoding."""
+    self.result |= value << self.length
     self.length += length
 
   def encode_bool(self, value: bool):
     """Encodes a bool as a single bit."""
     self._append(value, 1)
 
-  def encode_ally(self, value: int):
+  def encode_ally_value(self, value: int):
     """Encodes an integer as an Ally's value.
     
-    For Ally enumeration members, see encode_ally_index().
+    For Ally enumeration members, see encode_ally_value_as_index().
     """
     self._append(value & ally.EVERYONE.value, _ALLY_LEN)
 
@@ -42,13 +50,18 @@ class Encoder:
     self._append((value & ally.OPTIONAL.value) >> _ALLY_OPTIONAL_SHIFT,
                  _ALLY_OPTIONAL_LEN)
 
-  def encode_ally_index(self, index: int):
+  def _encode_ally_index(self, index: int):
     """Encodes a four-bit integer representing the 1-based index of an Ally.
 
-    The caller must provide a valid index. This requires fewer bits than
-    encode_ally().
+    The caller must provide a valid index. This encoding requires fewer bits
+    than encode_ally_value().
     """
     self._append(index & _ALLY_INDEX_MASK, _ALLY_INDEX_LEN)
+  
+  def encode_ally_value_as_index(self, value: int):
+    """Encodes a four-bit integer representing the 1-based index of the first
+    set bit of value."""
+    self._encode_ally_index(bits.ffs(value) + 1)
   
   def encode_ideal_leaders(self, leaders: int):
     """Encodes available, loyal, ideal leaders as a three-bit quantity."""
@@ -57,15 +70,15 @@ class Encoder:
   def encode_squad(self, squad: int):
     """Encodes two Ally indices based on the given squad.
     
-    If squad does not contain exactly two set bits, raises a ValueError.
+    Raises a ValueError if squad does not contain exactly two set bits.
     """
-    i = 1
-    for i, index in enumerate(bits.bit_indices(squad), 1):
+    i = 0
+    for i, index in enumerate(bits.bit_indices(squad, 1), 1):
       if i > 2:
-        raise ValueError(f'Too many squadmates: {Ally(squad)}')
-      self.encode_ally_index(index + 1)
+        raise ValueError(f"Too many squadmates: {Ally(squad)}")
+      self._encode_ally_index(index)
     if i != 2:
-      raise ValueError(f'Not a full squad: {Ally(squad)}')
+      raise ValueError(f"Not a full squad: {Ally(squad)}")
 
   def encode_choices(self, choices: list[int]):
     """Encodes two Ally indices with a preceding bit indicating whether the
@@ -77,14 +90,14 @@ class Encoder:
     first_choice = choices[0] if choices and choices[0] else 0
     second_choice = choices[1] if first_choice and len(choices) > 1 else 0
     self.encode_bool(len(choices) < 3)
-    self.encode_ally_index(bits.ffs(first_choice, 1))
-    self.encode_ally_index(bits.ffs(second_choice, 1))
+    self.encode_ally_value_as_index(first_choice)
+    self.encode_ally_value_as_index(second_choice)
 
 
 def encode_outcome(spared: int, loyalty: int, crew: bool) -> int:
   """Encodes outcome data as an int."""
   encoder = Encoder()
-  encoder.encode_ally(spared)
+  encoder.encode_ally_value(spared)
   # The loyalty of dead allies does not affect the outcome.
   encoder.encode_ally_loyalty(spared & loyalty)
   encoder.encode_bool(crew)
@@ -97,6 +110,8 @@ class Decoder:
     self.encoded = encoded
 
   def _shift(self, length: int) -> int:
+    """Returns the least significant length bits of the encoded value and
+    right-shifts them out."""
     encoded = self.encoded & bits.mask(length)
     self.encoded >>= length
     return encoded
