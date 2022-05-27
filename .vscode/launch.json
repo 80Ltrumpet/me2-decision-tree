@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: ME2 Decision Tree",
+      "type": "python",
+      "request": "launch",
+      "module": "me2",
+      "args": ["${workspaceFolder}/me2.dat"]
+    },
+    {
+      "name": "Python: Interactive ME2 Decision Tree",
+      "type": "python",
+      "request": "launch",
+      "pythonArgs": ["-i"],
+      "module": "me2",
+      "args": ["${workspaceFolder}/me2.dat"],
+      "console": "integratedTerminal"
+    }
+  ]
+}
